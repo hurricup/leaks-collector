@@ -13,11 +13,16 @@ Root -> SomeObjectField.field -> OtherObject.otherfield -> OtherObject.somearray
 
 ### Filtering
 
-Object filtering is extendable via filter objects. Current filter: match by class name. Designed so filters can later introspect object properties, not just names.
+Filter is a `(HeapObjectContext) -> Boolean` predicate. `HeapObjectContext` wraps `HeapObject` + `HeapGraph` for extensibility. Current filter: hardcoded class name match. Designed so filters can later introspect object properties, not just names.
+
+### Parallelism
+
+GC roots are partitioned across `Runtime.availableProcessors()` threads (plain `ExecutorService`, no coroutines). Shared `ConcurrentHashMap` visited set prevents duplicate traversal. Shark is thread-safe since v2.7.
 
 ### Key Library
 
-- **Shark** (`shark-graph` from Square's LeakCanary) — Kotlin-native hprof parser with object graph traversal API. Works with standard JVM heap dumps despite LeakCanary being Android-focused.
+- **Shark** (`shark-graph` + `shark-hprof` v2.14 from Square's LeakCanary) — Kotlin-native hprof parser with object graph traversal API. Works with standard JVM heap dumps despite LeakCanary being Android-focused.
+- Shark sources extracted in `tmp/` (gitignored) for reference.
 
 ## Build
 
