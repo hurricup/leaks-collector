@@ -11,6 +11,8 @@ repositories {
 }
 
 dependencies {
+    implementation("com.squareup.leakcanary:shark-graph:2.14")
+    implementation("com.squareup.leakcanary:shark-hprof:2.14")
     testImplementation(kotlin("test"))
 }
 
