@@ -155,22 +155,18 @@ private fun bfsBackward(
     var keepGoing = true
     for (rootObjectId in foundRoots) {
         if (!keepGoing) break
-        val roots = gcRootIds[rootObjectId] ?: continue
+        val root = gcRootIds[rootObjectId]?.firstOrNull() ?: continue
         val rootObj = graph.findObjectById(rootObjectId)
+        val rootStep = PathStep.Root(root, rootObj)
 
-        for (root in roots) {
-            if (!keepGoing) break
-            val rootStep = PathStep.Root(root, rootObj)
-
-            if (rootObjectId == targetId) {
-                keepGoing = onPathFound(listOf(rootStep))
-                continue
-            }
-
-            keepGoing = reconstructForward(
-                rootObjectId, targetId, forwardEdges, listOf(rootStep), onPathFound
-            )
+        if (rootObjectId == targetId) {
+            keepGoing = onPathFound(listOf(rootStep))
+            continue
         }
+
+        keepGoing = reconstructForward(
+            rootObjectId, targetId, forwardEdges, listOf(rootStep), onPathFound
+        )
     }
 
     return keepGoing
