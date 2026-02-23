@@ -42,7 +42,7 @@ private sealed class IncomingRef {
  * Algorithm:
  * 1. Find all target object IDs by scanning instances
  * 2. Build a reverse reference index (child -> list of parents)
- * 3. For each target, walk backwards to GC roots with per-path cycle detection
+ * 3. For each target, BFS backwards to GC roots (shortest paths first, diverse branches)
  *
  * Paths are streamed to [onPath] as they are found.
  * Traversal follows only strong references (skips weak/soft/phantom).
@@ -72,9 +72,7 @@ fun findPaths(
         val targetStep = PathStep.Target(classNameOf(targetObj))
         var pathCount = 0
 
-        walkBack(
-            graph, targetId, reverseIndex, gcRootIds, HashSet(), 0,
-        ) { pathFromRoot ->
+        bfsBackward(graph, targetId, reverseIndex, gcRootIds) { pathFromRoot ->
             if (pathCount < MAX_PATHS_PER_TARGET) {
                 onPath(pathFromRoot + targetStep)
                 pathCount++
@@ -88,6 +86,121 @@ fun findPaths(
         }
     }
     System.err.println("Found $totalPaths total paths")
+}
+
+/**
+ * BFS backward from [targetId] toward GC roots.
+ * For each object visited, stores all incoming edges at the same (first-visit) BFS depth.
+ * When a GC root is reached, reconstructs all shortest paths back to it.
+ * Calls [onPathFound] for each complete path (root-to-target order, excluding target step).
+ * Return false from [onPathFound] to stop.
+ */
+private fun bfsBackward(
+    graph: HeapGraph,
+    targetId: Long,
+    reverseIndex: Map<Long, List<IncomingRef>>,
+    gcRootIds: Map<Long, List<GcRoot>>,
+    onPathFound: (List<PathStep>) -> Boolean,
+): Boolean {
+    // objectId -> BFS depth
+    val depth = HashMap<Long, Int>()
+    // childId -> all incoming edges at first-visit depth
+    // Each IncomingRef says: "IncomingRef.parentId references childId" in the original graph
+    val incomingEdges = HashMap<Long, MutableList<IncomingRef>>()
+    val foundRoots = mutableListOf<Long>()
+    val queue = ArrayDeque<Long>()
+
+    depth[targetId] = 0
+    queue.addLast(targetId)
+
+    // Phase 1: BFS from target toward GC roots
+    while (queue.isNotEmpty()) {
+        val objectId = queue.removeFirst()
+        val currentDepth = depth.getValue(objectId)
+
+        if (currentDepth >= MAX_PATH_DEPTH) continue
+
+        if (objectId in gcRootIds) {
+            foundRoots.add(objectId)
+            continue
+        }
+
+        val refs = reverseIndex[objectId] ?: continue
+        val nextDepth = currentDepth + 1
+
+        for (ref in refs) {
+            val existingDepth = depth[ref.parentId]
+            if (existingDepth == null) {
+                depth[ref.parentId] = nextDepth
+                incomingEdges.getOrPut(objectId) { mutableListOf() }.add(ref)
+                queue.addLast(ref.parentId)
+            } else if (existingDepth == nextDepth) {
+                incomingEdges.getOrPut(objectId) { mutableListOf() }.add(ref)
+            }
+        }
+    }
+
+    if (foundRoots.isEmpty()) return true
+
+    // Phase 2: Build forward edge map from the BFS tree
+    // forwardEdges[parentId] = list of (childId, ref) — edges going root-toward-target
+    val forwardEdges = HashMap<Long, MutableList<Pair<Long, IncomingRef>>>()
+    for ((childId, refs) in incomingEdges) {
+        for (ref in refs) {
+            forwardEdges.getOrPut(ref.parentId) { mutableListOf() }.add(childId to ref)
+        }
+    }
+
+    // Phase 3: Reconstruct paths from each found root to target
+    var keepGoing = true
+    for (rootObjectId in foundRoots) {
+        if (!keepGoing) break
+        val roots = gcRootIds[rootObjectId] ?: continue
+        val rootObj = graph.findObjectById(rootObjectId)
+
+        for (root in roots) {
+            if (!keepGoing) break
+            val rootStep = PathStep.Root(root, rootObj)
+
+            if (rootObjectId == targetId) {
+                keepGoing = onPathFound(listOf(rootStep))
+                continue
+            }
+
+            keepGoing = reconstructForward(
+                rootObjectId, targetId, forwardEdges, listOf(rootStep), onPathFound
+            )
+        }
+    }
+
+    return keepGoing
+}
+
+/**
+ * DFS through the BFS-tree forward edges to enumerate all shortest paths from root to target.
+ */
+private fun reconstructForward(
+    currentId: Long,
+    targetId: Long,
+    forwardEdges: Map<Long, List<Pair<Long, IncomingRef>>>,
+    pathSoFar: List<PathStep>,
+    onPathFound: (List<PathStep>) -> Boolean,
+): Boolean {
+    if (currentId == targetId) {
+        return onPathFound(pathSoFar)
+    }
+
+    val edges = forwardEdges[currentId] ?: return true
+    for ((childId, ref) in edges) {
+        val step = when (ref) {
+            is IncomingRef.Field -> PathStep.FieldReference(ref.ownerClassName, ref.fieldName)
+            is IncomingRef.Array -> PathStep.ArrayReference(ref.arrayClassName, ref.index)
+        }
+        if (!reconstructForward(childId, targetId, forwardEdges, pathSoFar + step, onPathFound)) {
+            return false
+        }
+    }
+    return true
 }
 
 /**
@@ -118,6 +231,7 @@ private fun buildReverseIndex(graph: HeapGraph): Map<Long, List<IncomingRef>> {
         val parentId = instance.objectId
         val className = instance.instanceClassName
         instance.readFields().forEach { field ->
+            if (field.name.startsWith('<')) return@forEach
             val childId = field.value.asNonNullObjectId ?: return@forEach
             index.getOrPut(childId) { mutableListOf() }
                 .add(IncomingRef.Field(parentId, className, field.name))
@@ -139,6 +253,7 @@ private fun buildReverseIndex(graph: HeapGraph): Map<Long, List<IncomingRef>> {
         val parentId = clazz.objectId
         val className = clazz.name
         clazz.readStaticFields().forEach { field ->
+            if (field.name.startsWith('<')) return@forEach
             val childId = field.value.asNonNullObjectId ?: return@forEach
             index.getOrPut(childId) { mutableListOf() }
                 .add(IncomingRef.Field(parentId, className, field.name))
@@ -146,55 +261,6 @@ private fun buildReverseIndex(graph: HeapGraph): Map<Long, List<IncomingRef>> {
     }
 
     return index
-}
-
-/**
- * Walks backwards from [objectId] toward GC roots.
- * Calls [onPathFound] with each complete path (root to current object's parent chain).
- * Returns false from [onPathFound] to stop searching for more paths.
- * Uses [visited] for per-path cycle detection and [MAX_PATH_DEPTH] limit.
- */
-private fun walkBack(
-    graph: HeapGraph,
-    objectId: Long,
-    reverseIndex: Map<Long, List<IncomingRef>>,
-    gcRootIds: Map<Long, List<GcRoot>>,
-    visited: MutableSet<Long>,
-    depth: Int,
-    onPathFound: (List<PathStep>) -> Boolean,
-): Boolean {
-    if (depth > MAX_PATH_DEPTH) return true
-
-    // Check if this object is a GC root
-    val roots = gcRootIds[objectId]
-    if (roots != null) {
-        val obj = graph.findObjectById(objectId)
-        for (root in roots) {
-            if (!onPathFound(listOf(PathStep.Root(root, obj)))) return false
-        }
-        return true
-    }
-
-    val incomingRefs = reverseIndex[objectId] ?: return true
-    visited.add(objectId)
-
-    var keepGoing = true
-    for (ref in incomingRefs) {
-        if (!keepGoing) break
-        if (ref.parentId in visited) continue
-
-        val step = when (ref) {
-            is IncomingRef.Field -> PathStep.FieldReference(ref.ownerClassName, ref.fieldName)
-            is IncomingRef.Array -> PathStep.ArrayReference(ref.arrayClassName, ref.index)
-        }
-
-        keepGoing = walkBack(graph, ref.parentId, reverseIndex, gcRootIds, visited, depth + 1) { parentPath ->
-            onPathFound(parentPath + step)
-        }
-    }
-
-    visited.remove(objectId)
-    return keepGoing
 }
 
 private fun isWeakReferenceType(instance: HeapInstance): Boolean {
