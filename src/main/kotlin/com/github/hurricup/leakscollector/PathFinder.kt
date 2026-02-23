@@ -23,6 +23,22 @@ private val WEAK_REFERENCE_CLASSES = setOf(
     "sun.misc.Cleaner",
 )
 
+private val LEAF_INSTANCE_CLASSES = setOf(
+    "java.lang.String",
+    "java.lang.Byte",
+    "java.lang.Short",
+    "java.lang.Integer",
+    "java.lang.Long",
+    "java.lang.Float",
+    "java.lang.Double",
+    "java.lang.Boolean",
+    "java.lang.Character",
+)
+
+private val LEAF_ARRAY_CLASSES = setOf(
+    "java.lang.String[]",
+)
+
 private const val MAX_PATH_DEPTH = 50
 private const val MAX_PATHS_PER_TARGET = 100
 
@@ -221,28 +237,33 @@ private fun findTargetIds(
 
 /**
  * Builds a reverse reference index: for each object, which objects reference it and how.
- * Only strong references are indexed.
+ * Only strong references are indexed. Leaf-type objects (primitives, Strings, wrappers,
+ * Class objects) are skipped both as parents and as children.
  */
 private fun buildReverseIndex(graph: HeapGraph): Map<Long, List<IncomingRef>> {
+    val skipChildIds = collectLeafObjectIds(graph)
     val index = HashMap<Long, MutableList<IncomingRef>>()
 
     for (instance in graph.instances) {
+        val className = instance.instanceClassName
+        if (className in LEAF_INSTANCE_CLASSES) continue
         if (isWeakReferenceType(instance)) continue
         val parentId = instance.objectId
-        val className = instance.instanceClassName
         instance.readFields().forEach { field ->
             if (field.name.startsWith('<')) return@forEach
             val childId = field.value.asNonNullObjectId ?: return@forEach
+            if (skipChildIds.binarySearch(childId) >= 0) return@forEach
             index.getOrPut(childId) { mutableListOf() }
                 .add(IncomingRef.Field(parentId, className, field.name))
         }
     }
 
     for (array in graph.objectArrays) {
-        val parentId = array.objectId
         val className = array.arrayClassName
+        if (className in LEAF_ARRAY_CLASSES) continue
+        val parentId = array.objectId
         array.readRecord().elementIds.forEachIndexed { idx, elementId ->
-            if (elementId != 0L) {
+            if (elementId != 0L && skipChildIds.binarySearch(elementId) < 0) {
                 index.getOrPut(elementId) { mutableListOf() }
                     .add(IncomingRef.Array(parentId, className, idx))
             }
@@ -255,12 +276,29 @@ private fun buildReverseIndex(graph: HeapGraph): Map<Long, List<IncomingRef>> {
         clazz.readStaticFields().forEach { field ->
             if (field.name.startsWith('<')) return@forEach
             val childId = field.value.asNonNullObjectId ?: return@forEach
+            if (skipChildIds.binarySearch(childId) >= 0) return@forEach
             index.getOrPut(childId) { mutableListOf() }
                 .add(IncomingRef.Field(parentId, className, field.name))
         }
     }
 
     return index
+}
+
+/**
+ * Collects IDs of leaf-type objects that should be excluded from the reverse index:
+ * primitive arrays, class objects, Strings, and primitive wrapper instances.
+ */
+private fun collectLeafObjectIds(graph: HeapGraph): LongArray {
+    val ids = ArrayList<Long>()
+    for (arr in graph.primitiveArrays) ids.add(arr.objectId)
+    for (clazz in graph.classes) ids.add(clazz.objectId)
+    for (instance in graph.instances) {
+        if (instance.instanceClassName in LEAF_INSTANCE_CLASSES) {
+            ids.add(instance.objectId)
+        }
+    }
+    return ids.toLongArray().also { it.sort() }
 }
 
 private fun isWeakReferenceType(instance: HeapInstance): Boolean {
