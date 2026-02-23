@@ -72,9 +72,13 @@ fun findPaths(
         val targetStep = PathStep.Target(classNameOf(targetObj))
         var pathCount = 0
 
+        val seenSignatures = HashSet<String>()
         bfsBackward(graph, targetId, reverseIndex, gcRootIds) { pathFromRoot ->
-            if (pathCount < MAX_PATHS_PER_TARGET) {
-                onPath(pathFromRoot + targetStep)
+            val fullPath = pathFromRoot + targetStep
+            val signature = pathSignature(fullPath)
+            if (signature !in seenSignatures) {
+                seenSignatures.add(signature)
+                onPath(fullPath)
                 pathCount++
                 totalPaths++
             }
@@ -268,4 +272,13 @@ private fun classNameOf(obj: HeapObject): String = when (obj) {
     is HeapClass -> obj.name
     is HeapObjectArray -> obj.arrayClassName
     is HeapPrimitiveArray -> obj.arrayClassName
+}
+
+private fun pathSignature(path: List<PathStep>): String = path.joinToString(" -> ") { step ->
+    when (step) {
+        is PathStep.Root -> "Root"
+        is PathStep.FieldReference -> "${step.ownerClassName}.${step.fieldName}"
+        is PathStep.ArrayReference -> "${step.arrayClassName}[*]"
+        is PathStep.Target -> step.className
+    }
 }
