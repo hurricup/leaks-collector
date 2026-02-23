@@ -3,7 +3,7 @@ package com.github.hurricup.leakscollector
 import shark.HprofHeapGraph.Companion.openHeapGraph
 import java.io.File
 
-private const val TARGET_CLASS_NAME = "com.example.TargetClass"
+private const val TARGET_CLASS_NAME = "com.intellij.openapi.project.impl.ProjectImpl"
 
 fun main(args: Array<String>) {
     val hprofPath = args.firstOrNull() ?: run {

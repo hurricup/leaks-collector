@@ -4,9 +4,6 @@ import shark.GcRoot
 import shark.HeapGraph
 import shark.HeapObject
 import shark.HeapObject.*
-import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.CopyOnWriteArrayList
-import java.util.concurrent.Executors
 
 /**
  * A step in a reference path from a GC root to a target object.
@@ -31,39 +28,31 @@ private data class QueueEntry(val heapObject: HeapObject, val path: List<PathSte
 /**
  * Finds all paths from GC roots to objects matching the given predicate.
  * Traversal follows only strong references (skips weak/soft/phantom).
- * GC roots are processed in parallel across available CPU cores.
+ *
+ * Note: Shark's underlying hprof reader is not thread-safe for concurrent IO,
+ * so traversal is single-threaded.
  */
 fun findPaths(
     graph: HeapGraph,
     predicate: (HeapObjectContext) -> Boolean,
 ): List<List<PathStep>> {
-    val visited = ConcurrentHashMap.newKeySet<Long>()
-    val results = CopyOnWriteArrayList<List<PathStep>>()
-    val threadCount = Runtime.getRuntime().availableProcessors()
-    val executor = Executors.newFixedThreadPool(threadCount)
+    val visited = HashSet<Long>()
+    val results = mutableListOf<List<PathStep>>()
 
     val roots = graph.gcRoots.filter { graph.objectExists(it.id) }
-    val chunks = roots.chunked((roots.size / threadCount).coerceAtLeast(1))
 
-    val futures = chunks.map { chunk ->
-        executor.submit {
-            for (root in chunk) {
-                if (!visited.add(root.id)) continue
-                val rootObject = graph.findObjectById(root.id)
-                val rootStep = PathStep.Root(root, rootObject)
-                val initialPath = listOf<PathStep>(rootStep)
+    for (root in roots) {
+        if (!visited.add(root.id)) continue
+        val rootObject = graph.findObjectById(root.id)
+        val rootStep = PathStep.Root(root, rootObject)
+        val initialPath = listOf<PathStep>(rootStep)
 
-                if (predicate(HeapObjectContext(rootObject, graph))) {
-                    results.add(initialPath + PathStep.Target(classNameOf(rootObject)))
-                } else {
-                    bfs(graph, rootObject, initialPath, visited, predicate, results)
-                }
-            }
+        if (predicate(HeapObjectContext(rootObject, graph))) {
+            results.add(initialPath + PathStep.Target(classNameOf(rootObject)))
+        } else {
+            bfs(graph, rootObject, initialPath, visited, predicate, results)
         }
     }
-
-    futures.forEach { it.get() }
-    executor.shutdown()
 
     return results
 }
