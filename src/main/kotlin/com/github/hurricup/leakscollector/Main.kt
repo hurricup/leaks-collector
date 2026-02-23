@@ -23,14 +23,8 @@ fun main(args: Array<String>) {
             obj is shark.HeapObject.HeapInstance && obj.instanceClassName == TARGET_CLASS_NAME
         }
 
-        val paths = findPaths(graph, predicate)
-
-        if (paths.isEmpty()) {
-            System.err.println("No paths found to $TARGET_CLASS_NAME")
-        } else {
-            paths.forEach { path ->
-                println(formatPath(path))
-            }
+        findPaths(graph, predicate) { path ->
+            println(formatPath(path))
         }
     }
 }

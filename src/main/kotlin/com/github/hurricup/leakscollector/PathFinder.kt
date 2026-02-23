@@ -23,103 +23,178 @@ private val WEAK_REFERENCE_CLASSES = setOf(
     "sun.misc.Cleaner",
 )
 
-private data class QueueEntry(val heapObject: HeapObject, val path: List<PathStep>)
+private const val MAX_PATH_DEPTH = 50
+private const val MAX_PATHS_PER_TARGET = 100
+
+/**
+ * An incoming reference: "objectId is referenced by parentId via some reference".
+ */
+private sealed class IncomingRef {
+    abstract val parentId: Long
+
+    data class Field(override val parentId: Long, val ownerClassName: String, val fieldName: String) : IncomingRef()
+    data class Array(override val parentId: Long, val arrayClassName: String, val index: Int) : IncomingRef()
+}
 
 /**
  * Finds all paths from GC roots to objects matching the given predicate.
- * Traversal follows only strong references (skips weak/soft/phantom).
  *
- * Note: Shark's underlying hprof reader is not thread-safe for concurrent IO,
- * so traversal is single-threaded.
+ * Algorithm:
+ * 1. Find all target object IDs by scanning instances
+ * 2. Build a reverse reference index (child -> list of parents)
+ * 3. For each target, walk backwards to GC roots with per-path cycle detection
+ *
+ * Paths are streamed to [onPath] as they are found.
+ * Traversal follows only strong references (skips weak/soft/phantom).
  */
 fun findPaths(
     graph: HeapGraph,
     predicate: (HeapObjectContext) -> Boolean,
-): List<List<PathStep>> {
-    val visited = HashSet<Long>()
-    val results = mutableListOf<List<PathStep>>()
+    onPath: (List<PathStep>) -> Unit,
+) {
+    System.err.println("Scanning for target objects...")
+    val targetIds = findTargetIds(graph, predicate)
+    System.err.println("Found ${targetIds.size} target objects")
+    if (targetIds.isEmpty()) return
 
-    val roots = graph.gcRoots.filter { graph.objectExists(it.id) }
+    System.err.println("Building reverse reference index...")
+    val reverseIndex = buildReverseIndex(graph)
+    System.err.println("Reverse index built: ${reverseIndex.size} entries")
 
-    for (root in roots) {
-        if (!visited.add(root.id)) continue
-        val rootObject = graph.findObjectById(root.id)
-        val rootStep = PathStep.Root(root, rootObject)
-        val initialPath = listOf<PathStep>(rootStep)
+    val gcRootIds = graph.gcRoots
+        .filter { graph.objectExists(it.id) }
+        .groupBy { it.id }
 
-        if (predicate(HeapObjectContext(rootObject, graph))) {
-            results.add(initialPath + PathStep.Target(classNameOf(rootObject)))
-        } else {
-            bfs(graph, rootObject, initialPath, visited, predicate, results)
+    System.err.println("Reconstructing paths...")
+    var totalPaths = 0
+    for (targetId in targetIds) {
+        val targetObj = graph.findObjectById(targetId)
+        val targetStep = PathStep.Target(classNameOf(targetObj))
+        var pathCount = 0
+
+        walkBack(
+            graph, targetId, reverseIndex, gcRootIds, HashSet(), 0,
+        ) { pathFromRoot ->
+            if (pathCount < MAX_PATHS_PER_TARGET) {
+                onPath(pathFromRoot + targetStep)
+                pathCount++
+                totalPaths++
+            }
+            pathCount < MAX_PATHS_PER_TARGET
+        }
+
+        if (pathCount >= MAX_PATHS_PER_TARGET) {
+            System.err.println("  Hit $MAX_PATHS_PER_TARGET path limit for ${classNameOf(targetObj)}")
         }
     }
-
-    return results
+    System.err.println("Found $totalPaths total paths")
 }
 
-private fun bfs(
+/**
+ * Finds all object IDs matching the predicate.
+ */
+private fun findTargetIds(
     graph: HeapGraph,
-    startObject: HeapObject,
-    initialPath: List<PathStep>,
-    visited: MutableSet<Long>,
     predicate: (HeapObjectContext) -> Boolean,
-    results: MutableList<List<PathStep>>,
-) {
-    val queue = ArrayDeque<QueueEntry>()
-    enqueueReferences(graph, startObject, initialPath, visited, queue)
-
-    while (queue.isNotEmpty()) {
-        val (obj, path) = queue.removeFirst()
-
-        if (predicate(HeapObjectContext(obj, graph))) {
-            results.add(path + PathStep.Target(classNameOf(obj)))
-            continue
+): List<Long> {
+    val targets = mutableListOf<Long>()
+    for (instance in graph.instances) {
+        if (predicate(HeapObjectContext(instance, graph))) {
+            targets.add(instance.objectId)
         }
-
-        enqueueReferences(graph, obj, path, visited, queue)
     }
+    return targets
 }
 
-private fun enqueueReferences(
-    graph: HeapGraph,
-    obj: HeapObject,
-    currentPath: List<PathStep>,
-    visited: MutableSet<Long>,
-    queue: ArrayDeque<QueueEntry>,
-) {
-    when (obj) {
-        is HeapInstance -> {
-            if (isWeakReferenceType(obj)) return
+/**
+ * Builds a reverse reference index: for each object, which objects reference it and how.
+ * Only strong references are indexed.
+ */
+private fun buildReverseIndex(graph: HeapGraph): Map<Long, List<IncomingRef>> {
+    val index = HashMap<Long, MutableList<IncomingRef>>()
 
-            obj.readFields().forEach { field ->
-                val refId = field.value.asNonNullObjectId ?: return@forEach
-                if (!visited.add(refId)) return@forEach
-                val refObject = graph.findObjectById(refId)
-                val step = PathStep.FieldReference(obj.instanceClassName, field.name)
-                queue.addLast(QueueEntry(refObject, currentPath + step))
-            }
+    for (instance in graph.instances) {
+        if (isWeakReferenceType(instance)) continue
+        val parentId = instance.objectId
+        val className = instance.instanceClassName
+        instance.readFields().forEach { field ->
+            val childId = field.value.asNonNullObjectId ?: return@forEach
+            index.getOrPut(childId) { mutableListOf() }
+                .add(IncomingRef.Field(parentId, className, field.name))
         }
-        is HeapObjectArray -> {
-            obj.readRecord().elementIds.forEachIndexed { index, elementId ->
-                if (elementId == 0L) return@forEachIndexed
-                if (!visited.add(elementId)) return@forEachIndexed
-                if (!graph.objectExists(elementId)) return@forEachIndexed
-                val refObject = graph.findObjectById(elementId)
-                val step = PathStep.ArrayReference(obj.arrayClassName, index)
-                queue.addLast(QueueEntry(refObject, currentPath + step))
-            }
-        }
-        is HeapClass -> {
-            obj.readStaticFields().forEach { field ->
-                val refId = field.value.asNonNullObjectId ?: return@forEach
-                if (!visited.add(refId)) return@forEach
-                val refObject = graph.findObjectById(refId)
-                val step = PathStep.FieldReference(obj.name, field.name)
-                queue.addLast(QueueEntry(refObject, currentPath + step))
-            }
-        }
-        is HeapPrimitiveArray -> { /* no references to follow */ }
     }
+
+    for (array in graph.objectArrays) {
+        val parentId = array.objectId
+        val className = array.arrayClassName
+        array.readRecord().elementIds.forEachIndexed { idx, elementId ->
+            if (elementId != 0L) {
+                index.getOrPut(elementId) { mutableListOf() }
+                    .add(IncomingRef.Array(parentId, className, idx))
+            }
+        }
+    }
+
+    for (clazz in graph.classes) {
+        val parentId = clazz.objectId
+        val className = clazz.name
+        clazz.readStaticFields().forEach { field ->
+            val childId = field.value.asNonNullObjectId ?: return@forEach
+            index.getOrPut(childId) { mutableListOf() }
+                .add(IncomingRef.Field(parentId, className, field.name))
+        }
+    }
+
+    return index
+}
+
+/**
+ * Walks backwards from [objectId] toward GC roots.
+ * Calls [onPathFound] with each complete path (root to current object's parent chain).
+ * Returns false from [onPathFound] to stop searching for more paths.
+ * Uses [visited] for per-path cycle detection and [MAX_PATH_DEPTH] limit.
+ */
+private fun walkBack(
+    graph: HeapGraph,
+    objectId: Long,
+    reverseIndex: Map<Long, List<IncomingRef>>,
+    gcRootIds: Map<Long, List<GcRoot>>,
+    visited: MutableSet<Long>,
+    depth: Int,
+    onPathFound: (List<PathStep>) -> Boolean,
+): Boolean {
+    if (depth > MAX_PATH_DEPTH) return true
+
+    // Check if this object is a GC root
+    val roots = gcRootIds[objectId]
+    if (roots != null) {
+        val obj = graph.findObjectById(objectId)
+        for (root in roots) {
+            if (!onPathFound(listOf(PathStep.Root(root, obj)))) return false
+        }
+        return true
+    }
+
+    val incomingRefs = reverseIndex[objectId] ?: return true
+    visited.add(objectId)
+
+    var keepGoing = true
+    for (ref in incomingRefs) {
+        if (!keepGoing) break
+        if (ref.parentId in visited) continue
+
+        val step = when (ref) {
+            is IncomingRef.Field -> PathStep.FieldReference(ref.ownerClassName, ref.fieldName)
+            is IncomingRef.Array -> PathStep.ArrayReference(ref.arrayClassName, ref.index)
+        }
+
+        keepGoing = walkBack(graph, ref.parentId, reverseIndex, gcRootIds, visited, depth + 1) { parentPath ->
+            onPathFound(parentPath + step)
+        }
+    }
+
+    visited.remove(objectId)
+    return keepGoing
 }
 
 private fun isWeakReferenceType(instance: HeapInstance): Boolean {
