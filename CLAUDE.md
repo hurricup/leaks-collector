@@ -15,9 +15,16 @@ Root -> SomeObjectField.field -> OtherObject.otherfield -> OtherObject.somearray
 
 Filter is a `(HeapObjectContext) -> Boolean` predicate. `HeapObjectContext` wraps `HeapObject` + `HeapGraph` for extensibility. Current filter: hardcoded class name match. Designed so filters can later introspect object properties, not just names.
 
-### Parallelism
+### Algorithm
 
-Currently single-threaded. Shark's `ClassFieldsReader` was fixed for thread safety in v2.7, but the underlying `RandomAccessHprofReader` has shared IO state (okio Buffer) that is NOT thread-safe for concurrent reads. Parallel traversal would require multiple HeapGraph instances or external synchronization.
+1. Scan all instances to find target object IDs
+2. Build reverse reference index (child -> list of parents) over entire heap
+3. For each target, walk backwards to GC roots with per-path cycle detection
+4. Stream paths to stdout as found; limits: 50 max depth, 100 paths per target
+
+### Threading
+
+Single-threaded. Shark's `RandomAccessHprofReader` has shared IO state (okio Buffer) that is NOT thread-safe for concurrent reads. Parallel traversal would require multiple HeapGraph instances.
 
 ### Key Library
 
