@@ -1,9 +1,13 @@
 package com.github.hurricup.leakscollector
 
+import io.github.oshai.kotlinlogging.KotlinLogging
 import shark.GcRoot
 import shark.HeapGraph
 import shark.HeapObject
 import shark.HeapObject.*
+import kotlin.time.measureTime
+
+private val logger = KotlinLogging.logger {}
 
 /**
  * A step in a reference path from a GC root to a target object.
@@ -68,20 +72,22 @@ fun findPaths(
     predicate: (HeapObjectContext) -> Boolean,
     onPath: (List<PathStep>) -> Unit,
 ) {
-    System.err.println("Scanning for target objects...")
-    val targetIds = findTargetIds(graph, predicate)
-    System.err.println("Found ${targetIds.size} target objects")
+    logger.info { "Scanning for target objects..." }
+    val targetIds: List<Long>
+    measureTime { targetIds = findTargetIds(graph, predicate) }
+        .also { logger.info { "Found ${targetIds.size} target objects in $it" } }
     if (targetIds.isEmpty()) return
 
-    System.err.println("Building reverse reference index...")
-    val reverseIndex = buildReverseIndex(graph)
-    System.err.println("Reverse index built: ${reverseIndex.size} entries")
+    logger.info { "Building reverse reference index..." }
+    val reverseIndex: Map<Long, List<IncomingRef>>
+    measureTime { reverseIndex = buildReverseIndex(graph) }
+        .also { logger.info { "Reverse index built: ${reverseIndex.size} entries in $it" } }
 
     val gcRootIds = graph.gcRoots
         .filter { graph.objectExists(it.id) }
         .groupBy { it.id }
 
-    System.err.println("Reconstructing paths...")
+    logger.info { "Reconstructing paths..." }
     var totalPaths = 0
     for (targetId in targetIds) {
         val targetObj = graph.findObjectById(targetId)
@@ -102,10 +108,10 @@ fun findPaths(
         }
 
         if (pathCount >= MAX_PATHS_PER_TARGET) {
-            System.err.println("  Hit $MAX_PATHS_PER_TARGET path limit for ${classNameOf(targetObj)}")
+            logger.info { "Hit $MAX_PATHS_PER_TARGET path limit for ${classNameOf(targetObj)}" }
         }
     }
-    System.err.println("Found $totalPaths total paths")
+    logger.info { "Found $totalPaths total paths" }
 }
 
 /**
