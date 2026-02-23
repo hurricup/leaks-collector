@@ -17,7 +17,7 @@ Filter is a `(HeapObjectContext) -> Boolean` predicate. `HeapObjectContext` wrap
 
 ### Parallelism
 
-GC roots are partitioned across `Runtime.availableProcessors()` threads (plain `ExecutorService`, no coroutines). Shared `ConcurrentHashMap` visited set prevents duplicate traversal. Shark is thread-safe since v2.7.
+Currently single-threaded. Shark's `ClassFieldsReader` was fixed for thread safety in v2.7, but the underlying `RandomAccessHprofReader` has shared IO state (okio Buffer) that is NOT thread-safe for concurrent reads. Parallel traversal would require multiple HeapGraph instances or external synchronization.
 
 ### Key Library
 
