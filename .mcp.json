@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "Context7": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        ".ai/mcp/npx-wrapper.js",
+        "-y",
+        "@upstash/context7-mcp"
+      ]
+    }
+  }
+}
