@@ -341,7 +341,7 @@ private fun isStrongRoot(root: GcRoot): Boolean = when (root) {
     is GcRoot.JniLocal -> true
     is GcRoot.JavaFrame -> true
     is GcRoot.NativeStack -> true
-    is GcRoot.StickyClass -> true
+    is GcRoot.StickyClass -> false
     is GcRoot.ThreadBlock -> true
     is GcRoot.MonitorUsed -> true
     is GcRoot.ThreadObject -> true
