@@ -242,49 +242,74 @@ private fun findTargetIds(
 }
 
 /**
- * Builds a reverse reference index: for each object, which objects reference it and how.
- * Only strong references are indexed. Leaf-type objects (primitives, Strings, wrappers,
- * Class objects) are skipped both as parents and as children.
+ * Builds a reverse reference index by walking forward from strong GC roots.
+ * Only objects reachable via strong references are indexed.
+ * Leaf-type objects (primitives, Strings, wrappers, Class objects) are skipped
+ * both as parents and as children.
  */
 private fun buildReverseIndex(graph: HeapGraph): Map<Long, List<IncomingRef>> {
     val skipChildIds = collectLeafObjectIds(graph)
     val index = HashMap<Long, MutableList<IncomingRef>>()
+    val visited = HashSet<Long>()
+    val queue = ArrayDeque<Long>()
 
-    for (instance in graph.instances) {
-        val className = instance.instanceClassName
-        if (className in LEAF_INSTANCE_CLASSES) continue
-        if (isWeakReferenceType(instance)) continue
-        val parentId = instance.objectId
-        instance.readFields().forEach { field ->
-            if (field.name.startsWith('<')) return@forEach
-            val childId = field.value.asNonNullObjectId ?: return@forEach
-            if (skipChildIds.binarySearch(childId) >= 0) return@forEach
-            index.getOrPut(childId) { mutableListOf() }
-                .add(IncomingRef.Field(parentId, className, field.name))
+    for (root in graph.gcRoots) {
+        if (!isStrongRoot(root) || !graph.objectExists(root.id)) continue
+        if (visited.add(root.id)) {
+            queue.addLast(root.id)
         }
     }
 
-    for (array in graph.objectArrays) {
-        val className = array.arrayClassName
-        if (className in LEAF_ARRAY_CLASSES) continue
-        val parentId = array.objectId
-        array.readRecord().elementIds.forEachIndexed { idx, elementId ->
-            if (elementId != 0L && skipChildIds.binarySearch(elementId) < 0) {
-                index.getOrPut(elementId) { mutableListOf() }
-                    .add(IncomingRef.Array(parentId, className, idx))
+    while (queue.isNotEmpty()) {
+        val objectId = queue.removeFirst()
+        val obj = graph.findObjectById(objectId)
+
+        when (obj) {
+            is HeapInstance -> {
+                if (obj.instanceClassName in LEAF_INSTANCE_CLASSES) continue
+                if (isWeakReferenceType(obj)) continue
+                val className = obj.instanceClassName
+                obj.readFields().forEach { field ->
+                    if (field.name.startsWith('<')) return@forEach
+                    val childId = field.value.asNonNullObjectId ?: return@forEach
+                    if (skipChildIds.binarySearch(childId) >= 0) return@forEach
+                    if (!graph.objectExists(childId)) return@forEach
+                    index.getOrPut(childId) { mutableListOf() }
+                        .add(IncomingRef.Field(objectId, className, field.name))
+                    if (visited.add(childId)) {
+                        queue.addLast(childId)
+                    }
+                }
             }
-        }
-    }
-
-    for (clazz in graph.classes) {
-        val parentId = clazz.objectId
-        val className = clazz.name
-        clazz.readStaticFields().forEach { field ->
-            if (field.name.startsWith('<')) return@forEach
-            val childId = field.value.asNonNullObjectId ?: return@forEach
-            if (skipChildIds.binarySearch(childId) >= 0) return@forEach
-            index.getOrPut(childId) { mutableListOf() }
-                .add(IncomingRef.Field(parentId, className, field.name))
+            is HeapObjectArray -> {
+                if (obj.arrayClassName in LEAF_ARRAY_CLASSES) continue
+                val className = obj.arrayClassName
+                obj.readRecord().elementIds.forEachIndexed { idx, elementId ->
+                    if (elementId != 0L && skipChildIds.binarySearch(elementId) < 0
+                        && graph.objectExists(elementId)) {
+                        index.getOrPut(elementId) { mutableListOf() }
+                            .add(IncomingRef.Array(objectId, className, idx))
+                        if (visited.add(elementId)) {
+                            queue.addLast(elementId)
+                        }
+                    }
+                }
+            }
+            is HeapClass -> {
+                val className = obj.name
+                obj.readStaticFields().forEach { field ->
+                    if (field.name.startsWith('<')) return@forEach
+                    val childId = field.value.asNonNullObjectId ?: return@forEach
+                    if (skipChildIds.binarySearch(childId) >= 0) return@forEach
+                    if (!graph.objectExists(childId)) return@forEach
+                    index.getOrPut(childId) { mutableListOf() }
+                        .add(IncomingRef.Field(objectId, className, field.name))
+                    if (visited.add(childId)) {
+                        queue.addLast(childId)
+                    }
+                }
+            }
+            is HeapPrimitiveArray -> { /* no object references */ }
         }
     }
 
