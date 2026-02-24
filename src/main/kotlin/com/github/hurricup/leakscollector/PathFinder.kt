@@ -16,7 +16,7 @@ sealed class PathStep {
     data class Root(val gcRoot: GcRoot, val heapObject: HeapObject) : PathStep()
     data class FieldReference(val ownerClassName: String, val fieldName: String) : PathStep()
     data class ArrayReference(val arrayClassName: String, val index: Int) : PathStep()
-    data class Target(val className: String) : PathStep()
+    data class Target(val className: String, val objectId: Long) : PathStep()
 }
 
 private val WEAK_REFERENCE_CLASSES = setOf(
@@ -91,7 +91,7 @@ fun findPaths(
     var totalPaths = 0
     for (targetId in targetIds) {
         val targetObj = graph.findObjectById(targetId)
-        val targetStep = PathStep.Target(classNameOf(targetObj))
+        val targetStep = PathStep.Target(classNameOf(targetObj), targetId)
         var pathCount = 0
 
         val seenSignatures = HashSet<String>()

@@ -11,6 +11,6 @@ fun formatPath(path: List<PathStep>): String = path.joinToString(" -> ") { step 
         is PathStep.Root -> "Root[${gcRootTypeName(step.gcRoot)}, ${step.heapObject.objectId}]"
         is PathStep.FieldReference -> "${step.ownerClassName}.${step.fieldName}"
         is PathStep.ArrayReference -> "${step.arrayClassName}[${step.index}]"
-        is PathStep.Target -> step.className
+        is PathStep.Target -> "${step.className}@${step.objectId}"
     }
 }
