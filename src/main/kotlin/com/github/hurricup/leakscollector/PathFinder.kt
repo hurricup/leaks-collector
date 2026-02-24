@@ -84,7 +84,7 @@ fun findPaths(
         .also { logger.info { "Reverse index built: ${reverseIndex.size} entries in $it" } }
 
     val gcRootIds = graph.gcRoots
-        .filter { graph.objectExists(it.id) }
+        .filter { isStrongRoot(it) && graph.objectExists(it.id) }
         .groupBy { it.id }
 
     logger.info { "Reconstructing paths..." }
@@ -311,6 +311,27 @@ private fun isWeakReferenceType(instance: HeapInstance): Boolean {
     return instance.instanceClass.classHierarchy.any { it.name in WEAK_REFERENCE_CLASSES }
 }
 
+private fun isStrongRoot(root: GcRoot): Boolean = when (root) {
+    is GcRoot.JniGlobal -> true
+    is GcRoot.JniLocal -> true
+    is GcRoot.JavaFrame -> true
+    is GcRoot.NativeStack -> true
+    is GcRoot.StickyClass -> true
+    is GcRoot.ThreadBlock -> true
+    is GcRoot.MonitorUsed -> true
+    is GcRoot.ThreadObject -> true
+    is GcRoot.JniMonitor -> true
+    is GcRoot.ReferenceCleanup -> true
+    is GcRoot.VmInternal -> true
+    is GcRoot.Finalizing -> false
+    is GcRoot.Debugger -> false
+    is GcRoot.Unreachable -> false
+    is GcRoot.InternedString -> false
+    is GcRoot.Unknown -> false
+}
+
+fun gcRootTypeName(root: GcRoot): String = root::class.simpleName ?: "Unknown"
+
 private fun classNameOf(obj: HeapObject): String = when (obj) {
     is HeapInstance -> obj.instanceClassName
     is HeapClass -> obj.name
@@ -320,7 +341,7 @@ private fun classNameOf(obj: HeapObject): String = when (obj) {
 
 private fun pathSignature(path: List<PathStep>): String = path.joinToString(" -> ") { step ->
     when (step) {
-        is PathStep.Root -> "Root"
+        is PathStep.Root -> "Root[${gcRootTypeName(step.gcRoot)}]"
         is PathStep.FieldReference -> "${step.ownerClassName}.${step.fieldName}"
         is PathStep.ArrayReference -> "${step.arrayClassName}[*]"
         is PathStep.Target -> step.className

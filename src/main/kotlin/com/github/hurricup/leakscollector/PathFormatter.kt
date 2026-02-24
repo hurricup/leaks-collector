@@ -8,7 +8,7 @@ package com.github.hurricup.leakscollector
  */
 fun formatPath(path: List<PathStep>): String = path.joinToString(" -> ") { step ->
     when (step) {
-        is PathStep.Root -> "Root"
+        is PathStep.Root -> "Root[${gcRootTypeName(step.gcRoot)}, ${step.heapObject.objectId}]"
         is PathStep.FieldReference -> "${step.ownerClassName}.${step.fieldName}"
         is PathStep.ArrayReference -> "${step.arrayClassName}[${step.index}]"
         is PathStep.Target -> step.className
