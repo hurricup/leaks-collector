@@ -34,19 +34,25 @@ Diversity comes from different **direct parents of the target**, not from combin
 1. Build reverse index (same as now)
 2. For each target, get direct parents from reverse index
 3. For each direct parent, walk backward to a GC root (one path per walk)
-4. On hitting an already-visited node:
+4. **Cycle detection**: per-walk visited set. If a walk hits a node already in its own path, it's a dead end — skip and try next parent. Every strongly reachable object must reach a GC root, so cycles are the only reason a walk can fail.
+5. **No depth limit**: since all strong reference chains lead to a root, walks always terminate (via root, known node, or cycle).
+6. On hitting an already-visited node (from a previous walk):
    - Compare prefix lengths (target → node)
    - If new prefix shorter: update node's best prefix, drop old path from results
    - Stop walk either way, start next one
-5. Merge threshold: don't merge within first N steps from root (N=5–7)
+7. Merge threshold: don't merge within first N steps from root (N=5–7)
    - "Interesting" objects (the ones to blame) are near the root
    - Merging near root would collapse genuinely different paths
+8. Cap at 100 unique result paths per target. No limit on walks — most merge quickly.
 
 ### Why this is better
 - Each walk stops at first known node — very cheap for redundant branches
 - No BFS explosion through collection internals
 - Number of walks = number of direct references to target (bounded)
 - Natural dedup: similar branches merge early
+
+### Logging
+- On displacement: log the full old path being dropped, the old prefix (target → shared node), and the new shorter prefix (target → shared node). This lets the user manually verify merge correctness and tune the threshold.
 
 ### Open questions
 - Exact merge threshold value (start with fixed N, tune from results)
