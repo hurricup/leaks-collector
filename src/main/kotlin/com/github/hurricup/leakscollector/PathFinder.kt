@@ -323,7 +323,6 @@ private fun buildReverseIndex(graph: HeapGraph): Map<Long, List<IncomingRef>> {
 private fun collectLeafObjectIds(graph: HeapGraph): LongArray {
     val ids = ArrayList<Long>()
     for (arr in graph.primitiveArrays) ids.add(arr.objectId)
-    for (clazz in graph.classes) ids.add(clazz.objectId)
     for (instance in graph.instances) {
         if (instance.instanceClassName in LEAF_INSTANCE_CLASSES) {
             ids.add(instance.objectId)
