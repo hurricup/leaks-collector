@@ -29,7 +29,19 @@ private fun getContainerState(instance: HeapInstance, graph: HeapGraph): String?
 
 fun main(args: Array<String>) {
     val hprofPath = args.firstOrNull() ?: run {
-        System.err.println("Usage: leaks-collector <path-to-hprof>")
+        System.err.println("""
+            leaks-collector — find retention paths to leaked objects in JVM heap dumps
+
+            Usage: leaks-collector <path-to-hprof>
+
+            Analyzes the given .hprof heap dump and prints retention paths from GC roots
+            to disposed ProjectImpl instances that are still held in memory.
+
+            On first run, a reverse index is built and cached as <file>.ri next to the
+            heap dump. Subsequent runs load the cache for faster analysis.
+
+            Output: one line per retention path to stdout. Logs go to stderr.
+        """.trimIndent())
         return
     }
 
