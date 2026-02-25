@@ -75,17 +75,32 @@ internal class PathRecord(
 /**
  * A group of targets sharing the same path signature.
  */
-class PathGroup(
+class PathGroup<T>(
     val signature: String,
-    val examplePath: List<PathStep>,
+    val examplePath: T,
     val targetIds: List<Long>,
 )
+
+/**
+ * Groups paths by signature. Each entry is (targetId, signature, path).
+ * Paths with the same signature across different targets are collapsed into one group.
+ */
+internal fun <T> groupPathsBySignature(
+    entries: List<Triple<Long, String, T>>,
+): List<PathGroup<T>> {
+    val groups = LinkedHashMap<String, Pair<T, ArrayList<Long>>>()
+    for ((targetId, signature, path) in entries) {
+        val group = groups.getOrPut(signature) { path to ArrayList() }
+        group.second.add(targetId)
+    }
+    return groups.map { (sig, pair) -> PathGroup(sig, pair.first, pair.second) }
+}
 
 fun findPaths(
     graph: HeapGraph,
     hprofFile: File,
     predicate: (HeapObjectContext) -> Boolean,
-    onGroup: (PathGroup) -> Unit,
+    onGroup: (PathGroup<List<PathStep>>) -> Unit,
 ) {
     logger.info { "Scanning for target objects..." }
     var targetIds: List<Long> = emptyList()
@@ -118,8 +133,7 @@ fun findPaths(
 
     logger.info { "Finding paths..." }
 
-    // signature -> (example path, list of target IDs)
-    val groups = LinkedHashMap<String, Pair<List<PathStep>, ArrayList<Long>>>()
+    val allEntries = ArrayList<Triple<Long, String, List<PathStep>>>()
 
     for (targetId in targetIds) {
         val targetObj = graph.findObjectById(targetId)
@@ -135,8 +149,7 @@ fun findPaths(
             val signature = pathSignature(fullPath)
             if (signature !in seenSignatures) {
                 seenSignatures.add(signature)
-                val group = groups.getOrPut(signature) { fullPath to ArrayList() }
-                group.second.add(targetId)
+                allEntries.add(Triple(targetId, signature, fullPath))
             }
         }
         if (seenSignatures.size >= MAX_PATHS_PER_TARGET) {
@@ -144,10 +157,10 @@ fun findPaths(
         }
     }
 
+    val groups = groupPathsBySignature(allEntries)
     logger.info { "Found ${groups.size} unique path groups for ${targetIds.size} targets" }
-    for ((signature, pair) in groups) {
-        val (examplePath, ids) = pair
-        onGroup(PathGroup(signature, examplePath, ids))
+    for (group in groups) {
+        onGroup(group)
     }
 }
 
