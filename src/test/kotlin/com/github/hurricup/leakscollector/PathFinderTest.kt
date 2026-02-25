@@ -1,0 +1,181 @@
+package com.github.hurricup.leakscollector
+
+import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.dataformat.yaml.YAMLFactory
+import com.fasterxml.jackson.module.kotlin.registerKotlinModule
+import kotlin.test.Test
+import kotlin.test.assertEquals
+
+class PathFinderTest {
+
+    @Test
+    fun `simple chain`() = runGraphTest("simple-chain.yaml")
+
+    private fun runGraphTest(fileName: String) {
+        val testGraph = loadTestGraph(fileName)
+        val (reverseIndex, rootObjectIds, objectIds, objectDefs) = buildTestData(testGraph)
+
+        val targetIds = testGraph.targets.map { objectIds.getValue(it) }
+
+        val allPaths = mutableListOf<String>()
+        for (targetId in targetIds) {
+            val targetName = objectIds.entries.first { it.value == targetId }.key
+            val targetClass = testGraph.objects?.get(targetName)?.`class`
+                ?: testGraph.target_class
+                ?: error("No class for target $targetName: define it in objects or set target_class")
+
+            val records = findPathsForTarget(targetId, reverseIndex, rootObjectIds)
+            for (record in records) {
+                val path = formatTestPath(record, targetId, targetClass, objectIds, objectDefs, testGraph.roots)
+                allPaths.add(path)
+            }
+        }
+
+        if (testGraph.expected_paths != null) {
+            assertEquals(
+                testGraph.expected_paths.sorted(),
+                allPaths.sorted(),
+                "Paths mismatch"
+            )
+        }
+        if (testGraph.expected_path_count != null) {
+            assertEquals(testGraph.expected_path_count, allPaths.size, "Path count mismatch")
+        }
+    }
+
+    private fun loadTestGraph(fileName: String): TestGraph {
+        val mapper = ObjectMapper(YAMLFactory()).registerKotlinModule()
+        val stream = javaClass.classLoader.getResourceAsStream("graphs/$fileName")
+            ?: error("Test graph not found: graphs/$fileName")
+        return mapper.readValue(stream, TestGraph::class.java)
+    }
+
+    private data class TestData(
+        val reverseIndex: Map<Long, LongArray>,
+        val rootObjectIds: Set<Long>,
+        val objectIds: Map<String, Long>,
+        val objectDefs: Map<String, TestObject>,
+    )
+
+    private fun buildTestData(graph: TestGraph): TestData {
+        val objectDefs = graph.objects ?: emptyMap()
+
+        // Assign stable Long IDs to all named objects
+        val allNames = linkedSetOf<String>()
+        for (root in graph.roots) {
+            allNames.addAll(root.objects)
+        }
+        for ((name, obj) in objectDefs) {
+            allNames.add(name)
+            obj.fields?.values?.let { allNames.addAll(it) }
+            obj.elements?.filterNotNull()?.let { allNames.addAll(it) }
+        }
+        allNames.addAll(graph.targets)
+
+        val objectIds = LinkedHashMap<String, Long>()
+        var nextId = 1000L
+        for (name in allNames) {
+            objectIds.getOrPut(name) { nextId++ }
+        }
+
+        // Build reverse index: childId -> parentIds
+        val forwardRefs = HashMap<Long, ArrayList<Long>>()
+        for ((name, obj) in objectDefs) {
+            val parentId = objectIds.getValue(name)
+            obj.fields?.values?.forEach { childName ->
+                val childId = objectIds.getValue(childName)
+                forwardRefs.getOrPut(childId) { ArrayList() }.add(parentId)
+            }
+            obj.elements?.forEachIndexed { _, childName ->
+                if (childName != null) {
+                    val childId = objectIds.getValue(childName)
+                    forwardRefs.getOrPut(childId) { ArrayList() }.add(parentId)
+                }
+            }
+        }
+        val reverseIndex = forwardRefs.mapValues { (_, list) -> list.toLongArray() }
+
+        val rootObjectIds = graph.roots
+            .flatMap { it.objects }
+            .map { objectIds.getValue(it) }
+            .toSet()
+
+        return TestData(reverseIndex, rootObjectIds, objectIds, objectDefs)
+    }
+
+    private fun formatTestPath(
+        record: PathRecord,
+        targetId: Long,
+        targetClass: String,
+        objectIds: Map<String, Long>,
+        objectDefs: Map<String, TestObject>,
+        roots: List<TestRoot>,
+    ): String {
+        val idToName = objectIds.entries.associate { (k, v) -> v to k }
+
+        // Build path as list of IDs: root, intermediate (reversed), target
+        val ids = ArrayList<Long>()
+        ids.add(record.rootObjectId)
+        for (i in record.idsFromTarget.indices.reversed()) {
+            ids.add(record.idsFromTarget[i])
+        }
+        ids.add(targetId)
+
+        val parts = ArrayList<String>()
+
+        // Root step
+        val rootName = idToName.getValue(record.rootObjectId)
+        val rootType = roots.first { rootName in it.objects }.type
+        parts.add("Root[$rootType]")
+
+        // Edge steps
+        for (i in 0 until ids.size - 1) {
+            val parentId = ids[i]
+            val childId = ids[i + 1]
+            if (parentId == childId) continue
+            val parentName = idToName.getValue(parentId)
+            val parentDef = objectDefs[parentName]
+            if (parentDef != null) {
+                val fieldEntry = parentDef.fields?.entries?.firstOrNull { objectIds[it.value] == childId }
+                if (fieldEntry != null) {
+                    parts.add("${parentDef.`class`}.${fieldEntry.key}")
+                    continue
+                }
+                val elementIndex = parentDef.elements?.indexOfFirst { it != null && objectIds[it] == childId }
+                if (elementIndex != null && elementIndex >= 0) {
+                    parts.add("${parentDef.`class`}[$elementIndex]")
+                    continue
+                }
+            }
+            parts.add("${parentDef?.`class` ?: parentName}.?")
+        }
+
+        // Target step
+        parts.add(targetClass)
+
+        return parts.joinToString(" -> ")
+    }
+
+    // YAML data classes
+
+    private data class TestGraph(
+        val description: String? = null,
+        val roots: List<TestRoot>,
+        val objects: Map<String, TestObject>? = null,
+        val targets: List<String>,
+        val target_class: String? = null,
+        val expected_paths: List<String>? = null,
+        val expected_path_count: Int? = null,
+    )
+
+    private data class TestRoot(
+        val type: String,
+        val objects: List<String>,
+    )
+
+    private data class TestObject(
+        val `class`: String,
+        val fields: Map<String, String>? = null,
+        val elements: List<String?>? = null,
+    )
+}

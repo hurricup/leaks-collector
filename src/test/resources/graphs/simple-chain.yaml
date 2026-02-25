@@ -1,0 +1,25 @@
+description: Simple chain from GC root to target through three objects
+
+roots:
+  - type: JniGlobal
+    objects: [registry]
+
+objects:
+  registry:
+    class: com.example.AppRegistry
+    fields:
+      service: svc
+  svc:
+    class: com.example.ServiceA
+    fields:
+      handler: handler
+  handler:
+    class: com.example.Handler
+    fields:
+      project: target1
+
+targets: [target1]
+target_class: com.example.ProjectImpl
+
+expected_paths:
+  - "Root[JniGlobal] -> com.example.AppRegistry.service -> com.example.ServiceA.handler -> com.example.Handler.project -> com.example.ProjectImpl"

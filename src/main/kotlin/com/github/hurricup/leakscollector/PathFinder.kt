@@ -53,7 +53,7 @@ private const val MERGE_THRESHOLD = 5
  * idsFromTarget[last] is the child of the GC root object.
  * rootObjectId is the GC root object itself.
  */
-private class PathRecord(
+internal class PathRecord(
     val idsFromTarget: List<Long>,
     val rootObjectId: Long,
 )
@@ -79,7 +79,7 @@ fun findPaths(
     onPath: (List<PathStep>) -> Unit,
 ) {
     logger.info { "Scanning for target objects..." }
-    val targetIds: List<Long>
+    var targetIds: List<Long> = emptyList()
     measureTime { targetIds = findTargetIds(graph, predicate) }
         .also { logger.info { "Found ${targetIds.size} target objects in $it" } }
     if (targetIds.isEmpty()) return
@@ -114,7 +114,7 @@ fun findPaths(
         val targetClassName = classNameOf(targetObj)
         val directParents = reverseIndex[targetId]?.size ?: 0
         logger.info { "Target: $targetClassName@$targetId, direct parents: $directParents" }
-        val paths = findPathsForTarget(targetId, reverseIndex, gcRootIds)
+        val paths = findPathsForTarget(targetId, reverseIndex, gcRootIds.keys)
         logger.info { "  Found ${paths.size} raw paths" }
         val seenSignatures = HashSet<String>()
         var pathCount = 0
@@ -139,12 +139,12 @@ fun findPaths(
 /**
  * For a single target, walks backward from each direct parent to find diverse paths to GC roots.
  */
-private fun findPathsForTarget(
+internal fun findPathsForTarget(
     targetId: Long,
     reverseIndex: Map<Long, LongArray>,
-    gcRootIds: Map<Long, List<GcRoot>>,
+    rootObjectIds: Set<Long>,
 ): List<PathRecord> {
-    if (targetId in gcRootIds) {
+    if (targetId in rootObjectIds) {
         return listOf(PathRecord(emptyList(), targetId))
     }
 
@@ -157,7 +157,7 @@ private fun findPathsForTarget(
     for (parentId in directParents) {
         if (paths.size >= MAX_PATHS_PER_TARGET) break
 
-        val walkResult = walkToRoot(parentId, targetId, reverseIndex, gcRootIds, nodeOwner)
+        val walkResult = walkToRoot(parentId, targetId, reverseIndex, rootObjectIds, nodeOwner)
 
         when (walkResult) {
             is WalkResult.FoundRoot -> {
@@ -235,7 +235,7 @@ private fun walkToRoot(
     startParentId: Long,
     targetId: Long,
     reverseIndex: Map<Long, LongArray>,
-    gcRootIds: Map<Long, List<GcRoot>>,
+    rootObjectIds: Set<Long>,
     nodeOwner: Map<Long, Pair<Int, Int>>,
 ): WalkResult {
     val idsFromTarget = ArrayList<Long>()
@@ -253,7 +253,7 @@ private fun walkToRoot(
     var backtracksRemaining = MAX_BACKTRACKS
 
     while (true) {
-        if (currentId in gcRootIds) {
+        if (currentId in rootObjectIds) {
             return WalkResult.FoundRoot(idsFromTarget.toList(), currentId)
         }
 

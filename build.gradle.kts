@@ -16,6 +16,8 @@ dependencies {
     implementation("io.github.oshai:kotlin-logging-jvm:7.0.3")
     implementation("ch.qos.logback:logback-classic:1.5.15")
     testImplementation(kotlin("test"))
+    testImplementation("com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.18.2")
+    testImplementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.18.2")
 }
 
 kotlin {
@@ -28,6 +30,7 @@ application {
 
 tasks.test {
     useJUnitPlatform()
+    outputs.upToDateWhen { false }
 }
 
 tasks.register("generateVersionProperties") {
