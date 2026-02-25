@@ -157,7 +157,7 @@ fun findPaths(
         }
     }
 
-    val groups = groupPathsBySignature(allEntries)
+    val groups = groupPathsBySignature(allEntries).sortedByDescending { it.targetIds.size }
     logger.info { "Found ${groups.size} unique path groups for ${targetIds.size} targets" }
     for (group in groups) {
         onGroup(group)
