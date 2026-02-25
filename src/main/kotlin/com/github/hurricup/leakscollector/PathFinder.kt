@@ -72,12 +72,20 @@ internal class PathRecord(
  * Paths are emitted to [onPath] after all walks for a target complete.
  * Edge metadata (field names, array indices) is resolved from the HeapGraph only for final paths.
  */
+/**
+ * A group of targets sharing the same path signature.
+ */
+class PathGroup(
+    val signature: String,
+    val examplePath: List<PathStep>,
+    val targetIds: List<Long>,
+)
+
 fun findPaths(
     graph: HeapGraph,
     hprofFile: File,
     predicate: (HeapObjectContext) -> Boolean,
-    onTarget: (className: String, objectId: Long, pathCount: Int) -> Unit,
-    onPath: (List<PathStep>) -> Unit,
+    onGroup: (PathGroup) -> Unit,
 ) {
     logger.info { "Scanning for target objects..." }
     var targetIds: List<Long> = emptyList()
@@ -109,7 +117,10 @@ fun findPaths(
         .groupBy { it.id }
 
     logger.info { "Finding paths..." }
-    var totalPaths = 0
+
+    // signature -> (example path, list of target IDs)
+    val groups = LinkedHashMap<String, Pair<List<PathStep>, ArrayList<Long>>>()
+
     for (targetId in targetIds) {
         val targetObj = graph.findObjectById(targetId)
         val targetClassName = classNameOf(targetObj)
@@ -118,26 +129,26 @@ fun findPaths(
         val paths = findPathsForTarget(targetId, reverseIndex, gcRootIds.keys)
         logger.info { "  Found ${paths.size} raw paths" }
         val seenSignatures = HashSet<String>()
-        val dedupedPaths = ArrayList<List<PathStep>>()
         for (record in paths) {
             val fullPath = buildPathSteps(graph, record, targetClassName, targetId, gcRootIds)
                 ?: continue
             val signature = pathSignature(fullPath)
             if (signature !in seenSignatures) {
                 seenSignatures.add(signature)
-                dedupedPaths.add(fullPath)
+                val group = groups.getOrPut(signature) { fullPath to ArrayList() }
+                group.second.add(targetId)
             }
         }
-        onTarget(targetClassName, targetId, dedupedPaths.size)
-        for (path in dedupedPaths) {
-            onPath(path)
-            totalPaths++
-        }
-        if (dedupedPaths.size >= MAX_PATHS_PER_TARGET) {
+        if (seenSignatures.size >= MAX_PATHS_PER_TARGET) {
             logger.info { "Hit $MAX_PATHS_PER_TARGET path limit for $targetClassName" }
         }
     }
-    logger.info { "Found $totalPaths total paths" }
+
+    logger.info { "Found ${groups.size} unique path groups for ${targetIds.size} targets" }
+    for ((signature, pair) in groups) {
+        val (examplePath, ids) = pair
+        onGroup(PathGroup(signature, examplePath, ids))
+    }
 }
 
 /**

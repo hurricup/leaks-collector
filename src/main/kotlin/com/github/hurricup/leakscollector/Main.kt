@@ -102,17 +102,19 @@ fun main(args: Array<String>) {
                 }
             }
 
-            var firstTarget = true
-            findPaths(graph, hprofFile, predicate,
-                onTarget = { className, objectId, pathCount ->
-                    if (!firstTarget) println()
-                    firstTarget = false
-                    println("# $className@$objectId ($pathCount paths)")
-                },
-                onPath = { path ->
-                    println(formatPath(path))
-                },
-            )
+            var first = true
+            findPaths(graph, hprofFile, predicate) { group ->
+                if (!first) println()
+                first = false
+                val ids = group.targetIds
+                val className = (group.examplePath.last() as PathStep.Target).className
+                if (ids.size == 1) {
+                    println("# $className@${ids[0]}")
+                } else {
+                    println("# $className (${ids.size} instances)")
+                }
+                println(formatPath(group.examplePath))
+            }
         }
     }.also { logger.info { "Total time: $it" } }
 }
