@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "test-graph-schema.json",
+  "title": "Test Graph",
+  "description": "Defines an object graph for testing the path-finding algorithm without real heap dumps.",
+  "type": "object",
+  "required": ["roots", "objects", "targets"],
+  "additionalProperties": false,
+  "properties": {
+    "description": {
+      "type": "string",
+      "description": "Human-readable description of the test case."
+    },
+    "roots": {
+      "type": "array",
+      "description": "GC root entries.",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/root"
+      }
+    },
+    "objects": {
+      "type": "object",
+      "description": "Named objects in the graph, keyed by unique string ID.",
+      "additionalProperties": {
+        "$ref": "#/$defs/object"
+      }
+    },
+    "targets": {
+      "type": "array",
+      "description": "Object IDs to find paths to.",
+      "minItems": 1,
+      "items": {
+        "type": "string"
+      }
+    },
+    "target_class": {
+      "type": "string",
+      "description": "Default class name for targets not defined in objects."
+    },
+    "expected_paths": {
+      "type": "array",
+      "description": "Expected output paths for assertion.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "expected_path_count": {
+      "type": "integer",
+      "description": "Expected number of paths when exact paths don't matter.",
+      "minimum": 0
+    }
+  },
+  "$defs": {
+    "root": {
+      "type": "object",
+      "description": "A GC root entry.",
+      "required": ["type", "objects"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "GC root type.",
+          "enum": [
+            "JniGlobal",
+            "JniLocal",
+            "JavaFrame",
+            "NativeStack",
+            "ThreadBlock",
+            "MonitorUsed",
+            "ThreadObject",
+            "JniMonitor",
+            "ReferenceCleanup",
+            "VmInternal"
+          ]
+        },
+        "objects": {
+          "type": "array",
+          "description": "Object IDs held by this root.",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "object": {
+      "type": "object",
+      "description": "An object in the graph.",
+      "required": ["class"],
+      "additionalProperties": false,
+      "properties": {
+        "class": {
+          "type": "string",
+          "description": "Fully qualified class name."
+        },
+        "fields": {
+          "type": "object",
+          "description": "Named field references: fieldName -> targetObjectId.",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "elements": {
+          "type": "array",
+          "description": "Array element references (ordered). Use null for empty slots.",
+          "items": {
+            "type": ["string", "null"]
+          }
+        }
+      },
+      "not": {
+        "required": ["fields", "elements"]
+      }
+    }
+  }
+}
