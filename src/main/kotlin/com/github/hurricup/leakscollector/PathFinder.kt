@@ -85,18 +85,22 @@ fun findPaths(
     if (targetIds.isEmpty()) return
 
     val cacheFile = File(hprofFile.parentFile, "${hprofFile.name}.ri")
-    val reverseIndex: Map<Long, LongArray>
-    if (cacheFile.exists()) {
-        logger.info { "Loading reverse index from cache: ${cacheFile.name}" }
-        measureTime { reverseIndex = loadReverseIndex(cacheFile) }
-            .also { logger.info { "Reverse index loaded: ${reverseIndex.size} entries in $it" } }
-    } else {
+    val reverseIndex: Map<Long, LongArray> = run {
+        if (cacheFile.exists()) {
+            logger.info { "Loading reverse index from cache: ${cacheFile.name}" }
+            var cached: Map<Long, LongArray>? = null
+            measureTime { cached = loadReverseIndex(cacheFile, hprofFile) }
+                .also { if (cached != null) logger.info { "Reverse index loaded: ${cached!!.size} entries in $it" } }
+            cached?.let { return@run it }
+        }
+        var built: Map<Long, LongArray>? = null
         logger.info { "Building reverse reference index..." }
-        measureTime { reverseIndex = buildReverseIndex(graph) }
-            .also { logger.info { "Reverse index built: ${reverseIndex.size} entries in $it" } }
+        measureTime { built = buildReverseIndex(graph) }
+            .also { logger.info { "Reverse index built: ${built!!.size} entries in $it" } }
         logger.info { "Saving reverse index cache..." }
-        measureTime { saveReverseIndex(reverseIndex, cacheFile) }
+        measureTime { saveReverseIndex(built!!, cacheFile, hprofFile) }
             .also { logger.info { "Cache saved in $it" } }
+        built!!
     }
 
     val gcRootIds = graph.gcRoots
