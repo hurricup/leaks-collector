@@ -220,9 +220,12 @@ private sealed class WalkResult {
     data object DeadEnd : WalkResult()
 }
 
+private const val MAX_BACKTRACKS = 10
+
 /**
  * Greedy walk backward from [startParentId] toward a GC root.
- * At each step, picks the first unvisited parent. No backtracking.
+ * At each step, picks the first unvisited parent. On dead ends,
+ * backtracks up to [MAX_BACKTRACKS] times to try alternative parents.
  */
 private fun walkToRoot(
     startParentId: Long,
@@ -238,7 +241,12 @@ private fun walkToRoot(
     visitedInWalk.add(targetId)
     visitedInWalk.add(startParentId)
 
+    // Track which parent index we've tried at each position in idsFromTarget
+    val parentIndices = ArrayList<Int>()
+    parentIndices.add(0)
+
     var currentId = startParentId
+    var backtracksRemaining = MAX_BACKTRACKS
 
     while (true) {
         if (currentId in gcRootIds) {
@@ -250,14 +258,27 @@ private fun walkToRoot(
         }
 
         val parents = reverseIndex[currentId]
-        val nextParent = parents?.firstOrNull { it !in visitedInWalk }
+        val startIdx = parentIndices.last()
+        val nextParent = parents?.let { p ->
+            (startIdx until p.size).firstOrNull { p[it] !in visitedInWalk }
+        }
 
         if (nextParent != null) {
-            idsFromTarget.add(nextParent)
-            visitedInWalk.add(nextParent)
-            currentId = nextParent
+            val parentId = parents!![nextParent]
+            parentIndices[parentIndices.lastIndex] = nextParent + 1
+            idsFromTarget.add(parentId)
+            parentIndices.add(0)
+            visitedInWalk.add(parentId)
+            currentId = parentId
         } else {
-            return WalkResult.DeadEnd
+            // Dead end at current node — backtrack if budget allows
+            if (idsFromTarget.size <= 1 || backtracksRemaining <= 0) {
+                return WalkResult.DeadEnd
+            }
+            backtracksRemaining--
+            idsFromTarget.removeLast()
+            parentIndices.removeLast()
+            currentId = idsFromTarget.last()
         }
     }
 }
