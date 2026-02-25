@@ -4,7 +4,7 @@ CLI tool that analyzes JVM heap dumps (`.hprof` files) and finds retention paths
 
 ## How it works
 
-1. Opens the heap dump and scans for target objects matching a filter (currently: `ProjectImpl` instances).
+1. Opens the heap dump and scans for target objects. Currently targets `ProjectImpl` instances that have been fully disposed (`containerState` = `DISPOSE_COMPLETED`) but are still retained in memory. Alive projects are skipped and logged.
 2. Builds a **reverse reference index** — for each object, which other objects reference it. Only strong references are followed; weak/soft/phantom references and leaf types (strings, primitive wrappers, primitive arrays) are skipped. The index is cached to a `.ri` file next to the heap dump for fast reruns.
 3. For each target object, walks backward from its **direct parents** toward GC roots. Each walk follows a greedy path (first available parent at each step). When a walk reaches a node already seen by a previous walk, it merges — paths that share the same retention chain are collapsed into one, keeping only the shortest route to the shared point. This avoids the combinatorial explosion that happens when thousands of objects reference the target through the same collection internals (e.g., HashMap buckets).
 4. A **merge threshold** (5 steps from root) prevents merging near the root, preserving genuinely different retention chains. Paths that diverge only deep in the object graph (far from root, close to target) are considered redundant.

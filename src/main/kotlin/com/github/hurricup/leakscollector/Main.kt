@@ -1,12 +1,31 @@
 package com.github.hurricup.leakscollector
 
 import io.github.oshai.kotlinlogging.KotlinLogging
+import shark.HeapGraph
+import shark.HeapObject.HeapInstance
 import shark.HprofHeapGraph.Companion.openHeapGraph
 import java.io.File
 import kotlin.time.measureTime
 
 private val logger = KotlinLogging.logger {}
 private const val TARGET_CLASS_NAME = "com.intellij.openapi.project.impl.ProjectImpl"
+
+/**
+ * Reads the containerState enum name from a ProjectImpl instance:
+ * containerState (AtomicReference) -> value (ContainerState enum) -> name
+ */
+private fun getContainerState(instance: HeapInstance, graph: HeapGraph): String? {
+    val atomicRefId = instance.readFields()
+        .firstOrNull { it.name == "containerState" }
+        ?.value?.asNonNullObjectId ?: return null
+    val stateId = (graph.findObjectById(atomicRefId) as? HeapInstance)
+        ?.readFields()?.firstOrNull { it.name == "value" }
+        ?.value?.asNonNullObjectId ?: return null
+    return (graph.findObjectById(stateId) as? HeapInstance)
+        ?.readFields()?.firstOrNull { it.name == "name" }
+        ?.value?.asNonNullObjectId
+        ?.let { (graph.findObjectById(it) as? HeapInstance)?.readAsJavaString() }
+}
 
 fun main(args: Array<String>) {
     val hprofPath = args.firstOrNull() ?: run {
@@ -26,7 +45,17 @@ fun main(args: Array<String>) {
             logger.info { "Heap graph opened" }
             val predicate: (HeapObjectContext) -> Boolean = { ctx ->
                 val obj = ctx.heapObject
-                obj is shark.HeapObject.HeapInstance && obj.instanceClassName == TARGET_CLASS_NAME
+                if (obj is HeapInstance && obj.instanceClassName == TARGET_CLASS_NAME) {
+                    val state = getContainerState(obj, ctx.graph)
+                    if (state != "DISPOSE_COMPLETED") {
+                        logger.info { "Skipping alive $TARGET_CLASS_NAME@${obj.objectId} (state=$state)" }
+                        false
+                    } else {
+                        true
+                    }
+                } else {
+                    false
+                }
             }
 
             findPaths(graph, hprofFile, predicate) { path ->
