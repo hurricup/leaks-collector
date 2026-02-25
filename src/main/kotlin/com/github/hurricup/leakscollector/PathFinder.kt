@@ -5,6 +5,7 @@ import shark.GcRoot
 import shark.HeapGraph
 import shark.HeapObject
 import shark.HeapObject.*
+import java.io.File
 import kotlin.time.measureTime
 
 private val logger = KotlinLogging.logger {}
@@ -47,23 +48,13 @@ private const val MAX_PATHS_PER_TARGET = 100
 private const val MERGE_THRESHOLD = 5
 
 /**
- * An incoming reference: "objectId is referenced by parentId via some reference".
- */
-private sealed class IncomingRef {
-    abstract val parentId: Long
-
-    data class Field(override val parentId: Long, val ownerClassName: String, val fieldName: String) : IncomingRef()
-    data class Array(override val parentId: Long, val arrayClassName: String, val index: Int) : IncomingRef()
-}
-
-/**
- * A recorded path from a GC root to a target, stored as a list of refs from target toward root.
- * refsFromTarget[0] is the ref from target's direct parent to target,
- * refsFromTarget[last] is the ref from the GC root's child to the next node.
- * rootObjectId is the GC root object.
+ * A recorded path as a list of object IDs from target toward root.
+ * idsFromTarget[0] is the direct parent of the target,
+ * idsFromTarget[last] is the child of the GC root object.
+ * rootObjectId is the GC root object itself.
  */
 private class PathRecord(
-    val refsFromTarget: List<IncomingRef>,
+    val idsFromTarget: List<Long>,
     val rootObjectId: Long,
 )
 
@@ -72,16 +63,18 @@ private class PathRecord(
  *
  * Algorithm:
  * 1. Find all target object IDs by scanning instances
- * 2. Build a reverse reference index (child -> list of parents)
+ * 2. Build a reverse reference index (child -> parent IDs)
  * 3. For each target, walk backward from each direct parent to a GC root
  *    - Walks merge on already-visited nodes (with displacement if shorter)
  *    - Per-walk cycle detection
  *    - No depth limit (all strong refs lead to a root)
  *
  * Paths are emitted to [onPath] after all walks for a target complete.
+ * Edge metadata (field names, array indices) is resolved from the HeapGraph only for final paths.
  */
 fun findPaths(
     graph: HeapGraph,
+    hprofFile: File,
     predicate: (HeapObjectContext) -> Boolean,
     onPath: (List<PathStep>) -> Unit,
 ) {
@@ -91,10 +84,20 @@ fun findPaths(
         .also { logger.info { "Found ${targetIds.size} target objects in $it" } }
     if (targetIds.isEmpty()) return
 
-    logger.info { "Building reverse reference index..." }
-    val reverseIndex: Map<Long, List<IncomingRef>>
-    measureTime { reverseIndex = buildReverseIndex(graph) }
-        .also { logger.info { "Reverse index built: ${reverseIndex.size} entries in $it" } }
+    val cacheFile = File(hprofFile.parentFile, "${hprofFile.name}.ri")
+    val reverseIndex: Map<Long, LongArray>
+    if (cacheFile.exists()) {
+        logger.info { "Loading reverse index from cache: ${cacheFile.name}" }
+        measureTime { reverseIndex = loadReverseIndex(cacheFile) }
+            .also { logger.info { "Reverse index loaded: ${reverseIndex.size} entries in $it" } }
+    } else {
+        logger.info { "Building reverse reference index..." }
+        measureTime { reverseIndex = buildReverseIndex(graph) }
+            .also { logger.info { "Reverse index built: ${reverseIndex.size} entries in $it" } }
+        logger.info { "Saving reverse index cache..." }
+        measureTime { saveReverseIndex(reverseIndex, cacheFile) }
+            .also { logger.info { "Cache saved in $it" } }
+    }
 
     val gcRootIds = graph.gcRoots
         .filter { isStrongRoot(it) && graph.objectExists(it.id) }
@@ -107,7 +110,7 @@ fun findPaths(
         val targetClassName = classNameOf(targetObj)
         val directParents = reverseIndex[targetId]?.size ?: 0
         logger.info { "Target: $targetClassName@$targetId, direct parents: $directParents" }
-        val paths = findPathsForTarget(graph, targetId, reverseIndex, gcRootIds)
+        val paths = findPathsForTarget(targetId, reverseIndex, gcRootIds)
         logger.info { "  Found ${paths.size} raw paths" }
         val seenSignatures = HashSet<String>()
         var pathCount = 0
@@ -131,107 +134,78 @@ fun findPaths(
 
 /**
  * For a single target, walks backward from each direct parent to find diverse paths to GC roots.
- *
- * Each walk follows the first available parent at each step (greedy DFS through reverse index).
- * When a walk reaches a node already visited by a previous walk, it merges:
- * - If the new prefix (target → shared node) is shorter AND the shared node is far enough
- *   from root (beyond MERGE_THRESHOLD), the old path is displaced by the new shorter prefix.
- * - Otherwise, the walk just stops (reuses the existing suffix).
- *
- * Returns a list of [PathRecord]s — one per unique path found.
  */
 private fun findPathsForTarget(
-    graph: HeapGraph,
     targetId: Long,
-    reverseIndex: Map<Long, List<IncomingRef>>,
+    reverseIndex: Map<Long, LongArray>,
     gcRootIds: Map<Long, List<GcRoot>>,
 ): List<PathRecord> {
-    // Check if target itself is a GC root
     if (targetId in gcRootIds) {
         return listOf(PathRecord(emptyList(), targetId))
     }
 
-    val directRefs = reverseIndex[targetId] ?: return emptyList()
+    val directParents = reverseIndex[targetId] ?: return emptyList()
 
-    // nodeId -> (pathIndex, stepsFromTarget) for the path that "owns" this node
+    // nodeId -> (pathIndex, stepsFromTarget)
     val nodeOwner = HashMap<Long, Pair<Int, Int>>()
-    // All collected path records; index matches nodeOwner's pathIndex
     val paths = ArrayList<PathRecord>()
 
-    for (directRef in directRefs) {
+    for (parentId in directParents) {
         if (paths.size >= MAX_PATHS_PER_TARGET) break
 
-        val walkResult = walkToRoot(
-            directRef, targetId, reverseIndex, gcRootIds, nodeOwner, paths
-        )
+        val walkResult = walkToRoot(parentId, targetId, reverseIndex, gcRootIds, nodeOwner)
 
         when (walkResult) {
             is WalkResult.FoundRoot -> {
                 val pathIndex = paths.size
-                val record = PathRecord(walkResult.refsFromTarget, walkResult.rootObjectId)
+                val record = PathRecord(walkResult.idsFromTarget, walkResult.rootObjectId)
                 paths.add(record)
-                // Register all nodes in this path
-                for ((i, ref) in record.refsFromTarget.withIndex()) {
-                    val nodeId = ref.parentId
-                    val stepsFromTarget = i + 1
-                    nodeOwner[nodeId] = pathIndex to stepsFromTarget
+                for ((i, nodeId) in record.idsFromTarget.withIndex()) {
+                    nodeOwner[nodeId] = pathIndex to (i + 1)
                 }
             }
             is WalkResult.Merged -> {
-                val newPrefix = walkResult.refsFromTarget
+                val newPrefix = walkResult.idsFromTarget
                 val sharedNodeId = walkResult.sharedNodeId
                 val (existingPathIndex, existingStepsFromTarget) = nodeOwner.getValue(sharedNodeId)
                 val existingRecord = paths[existingPathIndex]
 
-                // Guard against stale nodeOwner entries from previous displacements
-                if (existingStepsFromTarget > existingRecord.refsFromTarget.size) continue
+                if (existingStepsFromTarget > existingRecord.idsFromTarget.size) continue
 
-                val existingStepsFromRoot = existingRecord.refsFromTarget.size - existingStepsFromTarget
+                val existingStepsFromRoot = existingRecord.idsFromTarget.size - existingStepsFromTarget
 
                 if (existingStepsFromRoot < MERGE_THRESHOLD) {
                     // Shared node is near root — genuine diversity, create new path
-                    val oldSuffix = existingRecord.refsFromTarget.subList(
-                        existingStepsFromTarget, existingRecord.refsFromTarget.size
+                    val oldSuffix = existingRecord.idsFromTarget.subList(
+                        existingStepsFromTarget, existingRecord.idsFromTarget.size
                     )
-                    val newRefs = newPrefix + oldSuffix
                     val pathIndex = paths.size
-                    val newRecord = PathRecord(newRefs, existingRecord.rootObjectId)
-                    paths.add(newRecord)
-                    // Register only the new prefix nodes
-                    for ((i, ref) in newPrefix.withIndex()) {
-                        val nodeId = ref.parentId
-                        val stepsFromTarget = i + 1
-                        nodeOwner[nodeId] = pathIndex to stepsFromTarget
+                    paths.add(PathRecord(newPrefix + oldSuffix, existingRecord.rootObjectId))
+                    for ((i, nodeId) in newPrefix.withIndex()) {
+                        nodeOwner[nodeId] = pathIndex to (i + 1)
                     }
                 } else if (newPrefix.size < existingStepsFromTarget) {
                     // Shared node is far from root, new prefix is shorter — displace
-                    val oldSuffix = existingRecord.refsFromTarget.subList(
-                        existingStepsFromTarget, existingRecord.refsFromTarget.size
+                    val oldSuffix = existingRecord.idsFromTarget.subList(
+                        existingStepsFromTarget, existingRecord.idsFromTarget.size
                     )
-                    val newRefs = newPrefix + oldSuffix
-                    val newRecord = PathRecord(newRefs, existingRecord.rootObjectId)
+                    val newIds = newPrefix + oldSuffix
+                    val newRecord = PathRecord(newIds, existingRecord.rootObjectId)
 
-                    logDisplacement(graph, existingRecord, newPrefix, existingStepsFromTarget, gcRootIds, targetId)
-
-                    // Remove old prefix nodes from nodeOwner (they're no longer in this path)
+                    // Remove old prefix nodes from nodeOwner
                     for (i in 0 until existingStepsFromTarget) {
-                        nodeOwner.remove(existingRecord.refsFromTarget[i].parentId)
+                        nodeOwner.remove(existingRecord.idsFromTarget[i])
                     }
 
                     paths[existingPathIndex] = newRecord
-                    // Update nodeOwner for the new prefix nodes
-                    for ((i, ref) in newPrefix.withIndex()) {
-                        val nodeId = ref.parentId
-                        val stepsFromTarget = i + 1
-                        nodeOwner[nodeId] = existingPathIndex to stepsFromTarget
+                    for ((i, nodeId) in newPrefix.withIndex()) {
+                        nodeOwner[nodeId] = existingPathIndex to (i + 1)
                     }
-                    // Update stepsFromTarget for suffix nodes (they shifted)
                     for (i in oldSuffix.indices) {
-                        val nodeId = oldSuffix[i].parentId
-                        nodeOwner[nodeId] = existingPathIndex to (newPrefix.size + i + 1)
+                        nodeOwner[oldSuffix[i]] = existingPathIndex to (newPrefix.size + i + 1)
                     }
                 }
-                // else: shared node far from root, prefix not shorter — skip (redundant path)
+                // else: shared node far from root, prefix not shorter — skip
             }
             is WalkResult.DeadEnd -> { /* cycle or no parents — skip */ }
         }
@@ -241,109 +215,56 @@ private fun findPathsForTarget(
 }
 
 private sealed class WalkResult {
-    /** Walk reached a GC root. */
-    data class FoundRoot(
-        val refsFromTarget: List<IncomingRef>,
-        val rootObjectId: Long,
-    ) : WalkResult()
-
-    /** Walk hit a node already owned by a previous path. */
-    data class Merged(
-        val refsFromTarget: List<IncomingRef>,
-        val sharedNodeId: Long,
-    ) : WalkResult()
-
-    /** Walk hit a cycle or dead end. */
+    data class FoundRoot(val idsFromTarget: List<Long>, val rootObjectId: Long) : WalkResult()
+    data class Merged(val idsFromTarget: List<Long>, val sharedNodeId: Long) : WalkResult()
     data object DeadEnd : WalkResult()
 }
 
 /**
- * Greedy walk backward from [startRef]'s parentId toward a GC root.
- * At each step, picks the first unvisited parent. No backtracking —
- * if all parents are visited (cycle), the walk is a dead end.
+ * Greedy walk backward from [startParentId] toward a GC root.
+ * At each step, picks the first unvisited parent. No backtracking.
  */
 private fun walkToRoot(
-    startRef: IncomingRef,
+    startParentId: Long,
     targetId: Long,
-    reverseIndex: Map<Long, List<IncomingRef>>,
+    reverseIndex: Map<Long, LongArray>,
     gcRootIds: Map<Long, List<GcRoot>>,
     nodeOwner: Map<Long, Pair<Int, Int>>,
-    @Suppress("UNUSED_PARAMETER") paths: List<PathRecord>,
 ): WalkResult {
-    val refsFromTarget = ArrayList<IncomingRef>()
-    refsFromTarget.add(startRef)
+    val idsFromTarget = ArrayList<Long>()
+    idsFromTarget.add(startParentId)
 
     val visitedInWalk = HashSet<Long>()
     visitedInWalk.add(targetId)
-    visitedInWalk.add(startRef.parentId)
+    visitedInWalk.add(startParentId)
 
-    var currentId = startRef.parentId
+    var currentId = startParentId
 
     while (true) {
-        // Check if current node is a GC root
         if (currentId in gcRootIds) {
-            return WalkResult.FoundRoot(refsFromTarget.toList(), currentId)
+            return WalkResult.FoundRoot(idsFromTarget.toList(), currentId)
         }
 
-        // Check if current node is already owned by another path
         if (currentId in nodeOwner) {
-            return WalkResult.Merged(refsFromTarget.toList(), currentId)
+            return WalkResult.Merged(idsFromTarget.toList(), currentId)
         }
 
-        // Pick first unvisited parent (greedy, no backtracking)
-        val refs = reverseIndex[currentId]
-        val nextRef = refs?.firstOrNull { it.parentId !in visitedInWalk }
+        val parents = reverseIndex[currentId]
+        val nextParent = parents?.firstOrNull { it !in visitedInWalk }
 
-        if (nextRef != null) {
-            refsFromTarget.add(nextRef)
-            visitedInWalk.add(nextRef.parentId)
-            currentId = nextRef.parentId
+        if (nextParent != null) {
+            idsFromTarget.add(nextParent)
+            visitedInWalk.add(nextParent)
+            currentId = nextParent
         } else {
-            // All parents visited (cycle) or no parents — dead end
             return WalkResult.DeadEnd
         }
     }
 }
 
-private fun logDisplacement(
-    graph: HeapGraph,
-    oldRecord: PathRecord,
-    newPrefix: List<IncomingRef>,
-    oldPrefixLength: Int,
-    gcRootIds: Map<Long, List<GcRoot>>,
-    targetId: Long,
-) {
-    val targetClassName = classNameOf(graph.findObjectById(targetId))
-    val oldPath = buildPathSteps(graph, oldRecord, targetClassName, targetId, gcRootIds)
-    val oldPrefixRefs = oldRecord.refsFromTarget.subList(0, oldPrefixLength)
-    logger.debug {
-        buildString {
-            appendLine("PATH DISPLACEMENT for $targetClassName@$targetId")
-            appendLine("  Old path: ${oldPath?.let { formatPathForLog(it) } ?: "?"}")
-            appendLine("  Old prefix (${oldPrefixRefs.size} steps): ${refsToString(oldPrefixRefs)}")
-            appendLine("  New prefix (${newPrefix.size} steps): ${refsToString(newPrefix)}")
-        }
-    }
-}
-
-private fun refsToString(refs: List<IncomingRef>): String = refs.joinToString(" -> ") { ref ->
-    when (ref) {
-        is IncomingRef.Field -> "${ref.ownerClassName}.${ref.fieldName}"
-        is IncomingRef.Array -> "${ref.arrayClassName}[${ref.index}]"
-    }
-}
-
-private fun formatPathForLog(path: List<PathStep>): String = path.joinToString(" -> ") { step ->
-    when (step) {
-        is PathStep.Root -> "Root[${gcRootTypeName(step.gcRoot)}]"
-        is PathStep.FieldReference -> "${step.ownerClassName}.${step.fieldName}"
-        is PathStep.ArrayReference -> "${step.arrayClassName}[${step.index}]"
-        is PathStep.Target -> step.className
-    }
-}
-
 /**
  * Converts a [PathRecord] to a list of [PathStep]s in root-to-target order.
+ * Resolves edge metadata (field names, array indices) from the HeapGraph.
  */
 private fun buildPathSteps(
     graph: HeapGraph,
@@ -354,22 +275,61 @@ private fun buildPathSteps(
 ): List<PathStep>? {
     val root = gcRootIds[record.rootObjectId]?.firstOrNull() ?: return null
     val rootObj = graph.findObjectById(record.rootObjectId)
-    val steps = ArrayList<PathStep>(record.refsFromTarget.size + 2)
+    val steps = ArrayList<PathStep>(record.idsFromTarget.size + 2)
     steps.add(PathStep.Root(root, rootObj))
 
-    // refsFromTarget is target-to-root order; we need root-to-target
-    for (i in record.refsFromTarget.indices.reversed()) {
-        val ref = record.refsFromTarget[i]
-        steps.add(
-            when (ref) {
-                is IncomingRef.Field -> PathStep.FieldReference(ref.ownerClassName, ref.fieldName)
-                is IncomingRef.Array -> PathStep.ArrayReference(ref.arrayClassName, ref.index)
-            }
-        )
+    // Build the full ID sequence: root, ids (reversed), target
+    val ids = ArrayList<Long>(record.idsFromTarget.size + 2)
+    ids.add(record.rootObjectId)
+    for (i in record.idsFromTarget.indices.reversed()) {
+        ids.add(record.idsFromTarget[i])
+    }
+    ids.add(targetId)
+
+    // Resolve each edge: ids[i] -> ids[i+1]
+    for (i in 0 until ids.size - 1) {
+        val parentId = ids[i]
+        val childId = ids[i + 1]
+        steps.add(resolveEdge(graph, parentId, childId))
     }
 
     steps.add(PathStep.Target(targetClassName, targetId))
     return steps
+}
+
+/**
+ * Finds the field or array element in [parentId] that references [childId].
+ */
+private fun resolveEdge(graph: HeapGraph, parentId: Long, childId: Long): PathStep {
+    val parent = graph.findObjectById(parentId)
+    when (parent) {
+        is HeapInstance -> {
+            val className = parent.instanceClassName
+            parent.readFields().forEach { field ->
+                if (field.value.asNonNullObjectId == childId) {
+                    return PathStep.FieldReference(className, field.name)
+                }
+            }
+        }
+        is HeapObjectArray -> {
+            val className = parent.arrayClassName
+            parent.readRecord().elementIds.forEachIndexed { idx, elementId ->
+                if (elementId == childId) {
+                    return PathStep.ArrayReference(className, idx)
+                }
+            }
+        }
+        is HeapClass -> {
+            val className = parent.name
+            parent.readStaticFields().forEach { field ->
+                if (field.value.asNonNullObjectId == childId) {
+                    return PathStep.FieldReference(className, field.name)
+                }
+            }
+        }
+        is HeapPrimitiveArray -> { /* can't reference objects */ }
+    }
+    return PathStep.FieldReference(classNameOf(parent), "?")
 }
 
 /**
@@ -390,13 +350,11 @@ private fun findTargetIds(
 
 /**
  * Builds a reverse reference index by walking forward from strong GC roots.
- * Only objects reachable via strong references are indexed.
- * Leaf-type objects (primitives, Strings, wrappers, Class objects) are skipped
- * both as parents and as children.
+ * Returns childId -> array of parentIds.
  */
-private fun buildReverseIndex(graph: HeapGraph): Map<Long, List<IncomingRef>> {
+private fun buildReverseIndex(graph: HeapGraph): Map<Long, LongArray> {
     val skipChildIds = collectLeafObjectIds(graph)
-    val index = HashMap<Long, MutableList<IncomingRef>>()
+    val index = HashMap<Long, ArrayList<Long>>()
     val visited = HashSet<Long>()
     val queue = ArrayDeque<Long>()
 
@@ -415,14 +373,12 @@ private fun buildReverseIndex(graph: HeapGraph): Map<Long, List<IncomingRef>> {
             is HeapInstance -> {
                 if (obj.instanceClassName in LEAF_INSTANCE_CLASSES) continue
                 if (isWeakReferenceType(obj)) continue
-                val className = obj.instanceClassName
                 obj.readFields().forEach { field ->
                     if (field.name.startsWith('<')) return@forEach
                     val childId = field.value.asNonNullObjectId ?: return@forEach
                     if (skipChildIds.binarySearch(childId) >= 0) return@forEach
                     if (!graph.objectExists(childId)) return@forEach
-                    index.getOrPut(childId) { mutableListOf() }
-                        .add(IncomingRef.Field(objectId, className, field.name))
+                    index.getOrPut(childId) { ArrayList() }.add(objectId)
                     if (visited.add(childId)) {
                         queue.addLast(childId)
                     }
@@ -430,12 +386,10 @@ private fun buildReverseIndex(graph: HeapGraph): Map<Long, List<IncomingRef>> {
             }
             is HeapObjectArray -> {
                 if (obj.arrayClassName in LEAF_ARRAY_CLASSES) continue
-                val className = obj.arrayClassName
-                obj.readRecord().elementIds.forEachIndexed { idx, elementId ->
+                obj.readRecord().elementIds.forEachIndexed { _, elementId ->
                     if (elementId != 0L && skipChildIds.binarySearch(elementId) < 0
                         && graph.objectExists(elementId)) {
-                        index.getOrPut(elementId) { mutableListOf() }
-                            .add(IncomingRef.Array(objectId, className, idx))
+                        index.getOrPut(elementId) { ArrayList() }.add(objectId)
                         if (visited.add(elementId)) {
                             queue.addLast(elementId)
                         }
@@ -443,14 +397,12 @@ private fun buildReverseIndex(graph: HeapGraph): Map<Long, List<IncomingRef>> {
                 }
             }
             is HeapClass -> {
-                val className = obj.name
                 obj.readStaticFields().forEach { field ->
                     if (field.name.startsWith('<')) return@forEach
                     val childId = field.value.asNonNullObjectId ?: return@forEach
                     if (skipChildIds.binarySearch(childId) >= 0) return@forEach
                     if (!graph.objectExists(childId)) return@forEach
-                    index.getOrPut(childId) { mutableListOf() }
-                        .add(IncomingRef.Field(objectId, className, field.name))
+                    index.getOrPut(childId) { ArrayList() }.add(objectId)
                     if (visited.add(childId)) {
                         queue.addLast(childId)
                     }
@@ -460,12 +412,12 @@ private fun buildReverseIndex(graph: HeapGraph): Map<Long, List<IncomingRef>> {
         }
     }
 
-    return index
+    // Convert to LongArray for compact storage
+    return index.mapValues { (_, list) -> list.toLongArray() }
 }
 
 /**
- * Collects IDs of leaf-type objects that should be excluded from the reverse index:
- * primitive arrays, class objects, Strings, and primitive wrapper instances.
+ * Collects IDs of leaf-type objects that should be excluded from the reverse index.
  */
 private fun collectLeafObjectIds(graph: HeapGraph): LongArray {
     val ids = ArrayList<Long>()

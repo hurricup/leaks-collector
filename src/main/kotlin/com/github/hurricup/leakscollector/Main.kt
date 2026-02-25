@@ -29,7 +29,7 @@ fun main(args: Array<String>) {
                 obj is shark.HeapObject.HeapInstance && obj.instanceClassName == TARGET_CLASS_NAME
             }
 
-            findPaths(graph, predicate) { path ->
+            findPaths(graph, hprofFile, predicate) { path ->
                 println(formatPath(path))
             }
         }
