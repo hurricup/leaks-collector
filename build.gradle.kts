@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "com.github.hurricup"
-version = "1.0-SNAPSHOT"
+version = "2026.1"
 
 repositories {
     mavenCentral()
@@ -28,4 +28,22 @@ application {
 
 tasks.test {
     useJUnitPlatform()
+}
+
+tasks.register("generateVersionProperties") {
+    val outputDir = layout.buildDirectory.dir("generated/resources")
+    outputs.dir(outputDir)
+    doLast {
+        val dir = outputDir.get().asFile.resolve("version")
+        dir.mkdirs()
+        dir.resolve("version.properties").writeText("version=${project.version}\n")
+    }
+}
+
+tasks.named("processResources") {
+    dependsOn("generateVersionProperties")
+}
+
+sourceSets.main {
+    resources.srcDir(layout.buildDirectory.dir("generated/resources"))
 }

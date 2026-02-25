@@ -5,10 +5,19 @@ import shark.HeapGraph
 import shark.HeapObject.HeapInstance
 import shark.HprofHeapGraph.Companion.openHeapGraph
 import java.io.File
+import java.util.*
 import kotlin.time.measureTime
 
 private val logger = KotlinLogging.logger {}
 private const val TARGET_CLASS_NAME = "com.intellij.openapi.project.impl.ProjectImpl"
+
+private val version: String by lazy {
+    val props = Properties()
+    Main::class.java.getResourceAsStream("/version/version.properties")?.use { props.load(it) }
+    props.getProperty("version", "unknown")
+}
+
+private object Main
 
 /**
  * Reads the containerState enum name from a ProjectImpl instance:
@@ -30,7 +39,7 @@ private fun getContainerState(instance: HeapInstance, graph: HeapGraph): String?
 fun main(args: Array<String>) {
     val hprofPath = args.firstOrNull() ?: run {
         System.err.println("""
-            leaks-collector — find retention paths to leaked objects in JVM heap dumps
+            leaks-collector $version — find retention paths to leaked objects in JVM heap dumps
 
             Usage: leaks-collector <path-to-hprof>
 
