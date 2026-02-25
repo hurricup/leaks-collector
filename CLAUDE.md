@@ -2,43 +2,36 @@
 
 ## Project
 
-CLI tool that reads JVM heap dumps (hprof) and finds all hard-referenced paths from GC roots to objects matching a filter.
+CLI tool that reads JVM heap dumps (hprof) and finds all hard-referenced paths from GC roots to objects matching a filter. Currently targets disposed `ProjectImpl` instances in IntelliJ-based IDEs.
 
 ### Output Format
 
-One line per path to stdout:
+Grouped by target with markdown headers:
 ```
-Root -> SomeObjectField.field -> OtherObject.otherfield -> OtherObject.somearray[index] -> TargetObject
+# com.example.TargetClass@objectId (N paths)
+Root[RootType, rootId] -> ClassName.field -> OtherClass.array[index] -> TargetClass@objectId
+
+# com.example.TargetClass@objectId2 (N paths)
+Root[RootType, rootId] -> ...
 ```
 
 ### Filtering
 
-Filter is a `(HeapObjectContext) -> Boolean` predicate. `HeapObjectContext` wraps `HeapObject` + `HeapGraph` for extensibility. Current filter: hardcoded class name match. Designed so filters can later introspect object properties, not just names.
+Filter is a `(HeapObjectContext) -> Boolean` predicate. `HeapObjectContext` wraps `HeapObject` + `HeapGraph` for extensibility. Current filter: `ProjectImpl` instances with `containerState = DISPOSE_COMPLETED` (leaked projects). Alive projects are logged and skipped.
 
-### Algorithm (current)
+### Algorithm
 
 1. Scan all instances to find target object IDs
-2. Build reverse reference index (child -> list of parents), skipping leaf types (String, primitives, wrappers, Class objects) and weak references
-3. For each target, BFS backward toward GC roots — stores all incoming edges at first-visit depth
-4. Build forward edge map from BFS tree, then DFS from each discovered GC root to enumerate paths
-5. Deduplicate paths differing only in array indices (signature with `[*]`)
-6. Stream paths to stdout; limits: 50 max depth, 100 paths per target
-
-### Algorithm (planned redesign)
-
-Current approach has a problem: BFS stores ALL shortest-path edges, so collection internals (HashMap buckets, array slots) explode the forward edge map and reconstruction wastes time enumerating near-identical paths through different buckets.
-
-New approach — iterative per-parent walks:
-
-1. Scan for targets, build reverse index (same as now)
-2. For each target, get its **direct parents** from the reverse index — these are the real entry points, one walk per parent
-3. For each direct parent, walk backward to a GC root (single path per walk)
-4. When a walk hits a node already on a known path, compare prefix lengths (target → node):
-   - If new prefix is shorter, update that node's best prefix and drop the old path from results
-   - Either way, stop the current walk and start the next one
-5. **Merge threshold**: don't merge within the first N steps from root (e.g., N=5–7). The "interesting" part of the path (object to blame) is usually near the root (static field, thread local, disposer entry). Merging only below that depth preserves meaningful diversity.
-
-Key insight: diversity comes from different **direct parents of the target**, not from combinatorial branching in collection internals. Walks through similar branches merge quickly and cheaply on the first known node.
+2. Build reverse reference index (`Map<Long, LongArray>`, child -> parent IDs), skipping leaf types (String, primitives, wrappers, Class objects) and weak references
+3. Cache reverse index as `.ri` file (gzip-compressed binary with hprof fingerprint validation)
+4. For each target, walk backward from each direct parent toward GC roots:
+   - Greedy walk: pick first unvisited parent at each step
+   - Bounded backtracking: up to 10 backtracks per walk to escape dead ends
+   - Merge/displacement when hitting already-known nodes
+   - Merge threshold (5 steps from root): paths sharing a node near root are kept as separate (genuine diversity); paths sharing a node far from root are merged (shorter prefix displaces, same/longer prefix skipped)
+5. Resolve field names and array indices from HeapGraph only for final output paths
+6. Deduplicate paths differing only in array indices (signature with `[*]`)
+7. Limit: 100 paths per target
 
 ### Threading
 
@@ -53,10 +46,15 @@ Single-threaded. Shark's `RandomAccessHprofReader` has shared IO state (okio Buf
 
 - Build: `./gradlew build`
 - Test: `./gradlew test`
-- Run: `./gradlew run`
+- Run: `./gradlew run --args="path/to/dump.hprof"`
+
+## Testing
+
+YAML-based test harness: define object graphs in `src/test/resources/graphs/*.yaml`, validated against JSON Schema (`test-graph-schema.json`). Tests build synthetic reverse indexes from YAML and verify path-finding algorithm output without real heap dumps. See `test-graph-schema.md` for format spec.
 
 ## Conventions
 
 - Language: Kotlin
 - Build system: Gradle (Kotlin DSL)
 - Atomic commits: each logical change in a separate commit
+- When running the tool, always redirect stdout and stderr to separate files, then read them
