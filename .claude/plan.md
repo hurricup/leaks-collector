@@ -3,60 +3,53 @@
 ## Architecture
 
 ```
-Main.kt                  - CLI entry point (args: hprof path)
+Main.kt                  - CLI entry point (args: hprof path, target filtering)
 HeapObjectContext.kt     - Wrapper around HeapObject with extra context
 PathFinder.kt            - Finds paths from GC roots to matching objects
 PathFormatter.kt         - Formats a path into the output string
+ReverseIndexCache.kt     - Binary cache for reverse index (gzip-compressed)
 ```
 
 ## Current State
 
-Working tool that finds 100 diverse shortest paths from GC roots to target objects.
+Working tool that finds diverse retention paths from GC roots to disposed ProjectImpl instances.
 
 ### What works
-- Reverse index with leaf-type filtering (String, primitives, wrappers, Class, String[])
-- BFS backward from target with forward edge reconstruction
-- Path deduplication via signature (array indices normalized to `[*]`)
-- Single GC root entry per root object (no duplicate root paths)
+- Reverse index (`Map<Long, LongArray>`) with leaf-type filtering (String, primitives, wrappers, Class, String[], primitive arrays)
+- Per-parent greedy walks with merge/displacement logic
+- Merge threshold (5 steps from root) preserves genuinely different retention chains
+- Binary reverse index cache (gzip-compressed `.ri` file) — loads in ~5s vs ~2.5min build
+- Target filtering: only disposed ProjectImpl instances (containerState = DISPOSE_COMPLETED)
+- Alive projects logged with their actual state
 - Structured logging with timings (kotlin-logging + Logback)
+- Edge resolution from HeapGraph at output time (no field names stored in index)
 
-### Known problems
-- BFS stores ALL edges at first-visit depth — collection internals (HashMap buckets, array slots) create massive forward edge maps
-- DFS reconstruction enumerates all same-depth alternatives, wastes time on near-identical paths
-- Signature dedup catches duplicates at output time, but all the traversal work is already done
+### Algorithm (implemented)
+1. Scan all instances to find disposed ProjectImpl targets
+2. Build reverse reference index (child -> parentIds as LongArray), skipping leaf types and weak references
+3. Cache reverse index to `.ri` file (or load from cache on subsequent runs)
+4. For each target, get direct parents from reverse index
+5. For each direct parent, greedy walk backward toward GC root (first unvisited parent at each step)
+6. On hitting already-known node:
+   - If < MERGE_THRESHOLD steps from root: create new path (genuine diversity)
+   - If new prefix shorter: displace old path with shorter prefix
+   - Otherwise: skip (redundant path)
+7. Resolve field names and array indices from HeapGraph only for final output paths
 
-## Next: Redesign Path Finding
+## Future Ideas
 
-### Core idea
-Diversity comes from different **direct parents of the target**, not from combinatorial branching midway. One walk per direct parent is sufficient.
+### 1. Configurable merge threshold
+The merge threshold (currently hardcoded at 5) could be a CLI argument. Works perfectly for current use cases, but worth keeping an eye on — different heap patterns might benefit from tuning.
 
-### Algorithm
-1. Build reverse index (same as now)
-2. For each target, get direct parents from reverse index
-3. For each direct parent, walk backward to a GC root (one path per walk)
-4. **Cycle detection**: per-walk visited set. If a walk hits a node already in its own path, it's a dead end — skip and try next parent. Every strongly reachable object must reach a GC root, so cycles are the only reason a walk can fail.
-5. **No depth limit**: since all strong reference chains lead to a root, walks always terminate (via root, known node, or cycle).
-6. On hitting an already-visited node (from a previous walk):
-   - Compare prefix lengths (target → node)
-   - If new prefix shorter: update node's best prefix, drop old path from results
-   - Stop walk either way, start next one
-7. Merge threshold: don't merge within first N steps from root (N=5–7)
-   - "Interesting" objects (the ones to blame) are near the root
-   - Merging near root would collapse genuinely different paths
-8. Cap at 100 unique result paths per target. No limit on walks — most merge quickly.
+### 2. User-friendly CLI workflow
+Provide interactive CLI that:
+- Runs a command to find IDE processes (or shows all JVM processes)
+- Lets user pick a process
+- Runs `jmap` to capture heap dump
+- Analyzes the snapshot automatically
 
-### Why this is better
-- Each walk stops at first known node — very cheap for redundant branches
-- No BFS explosion through collection internals
-- Number of walks = number of direct references to target (bounded)
-- Natural dedup: similar branches merge early
-
-### Logging
-- On displacement: log the full old path being dropped, the old prefix (target → shared node), and the new shorter prefix (target → shared node). This lets the user manually verify merge correctness and tune the threshold.
-
-### Open questions
-- Exact merge threshold value (start with fixed N, tune from results)
-- Walk strategy: DFS? Shortest-first? (DFS is simplest, merging handles bias)
+### 3. MCP server for snapshot navigation
+Separate tool that loads a heap snapshot and exposes MCP tools for navigating, searching, and inspecting the object graph interactively. This feels like a separate project rather than an extension of leaks-collector.
 
 ## Completed commits
 1. Scaffold Gradle project
@@ -72,3 +65,6 @@ Diversity comes from different **direct parents of the target**, not from combin
 11. Deduplicate paths differing only in array indices
 12. Skip leaf-type objects in reverse index
 13. Structured logging with timings
+14. Redesign path finding: per-parent greedy walks with merge
+15. Add binary reverse index cache
+16. Filter targets to only disposed ProjectImpl instances
