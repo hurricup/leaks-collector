@@ -79,9 +79,17 @@ fun main(args: Array<String>) {
                 }
             }
 
-            findPaths(graph, hprofFile, predicate) { path ->
-                println(formatPath(path))
-            }
+            var firstTarget = true
+            findPaths(graph, hprofFile, predicate,
+                onTarget = { className, objectId, pathCount ->
+                    if (!firstTarget) println()
+                    firstTarget = false
+                    println("# $className@$objectId ($pathCount paths)")
+                },
+                onPath = { path ->
+                    println(formatPath(path))
+                },
+            )
         }
     }.also { logger.info { "Total time: $it" } }
 }

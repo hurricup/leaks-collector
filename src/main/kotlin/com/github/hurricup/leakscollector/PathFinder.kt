@@ -76,6 +76,7 @@ fun findPaths(
     graph: HeapGraph,
     hprofFile: File,
     predicate: (HeapObjectContext) -> Boolean,
+    onTarget: (className: String, objectId: Long, pathCount: Int) -> Unit,
     onPath: (List<PathStep>) -> Unit,
 ) {
     logger.info { "Scanning for target objects..." }
@@ -117,19 +118,22 @@ fun findPaths(
         val paths = findPathsForTarget(targetId, reverseIndex, gcRootIds.keys)
         logger.info { "  Found ${paths.size} raw paths" }
         val seenSignatures = HashSet<String>()
-        var pathCount = 0
+        val dedupedPaths = ArrayList<List<PathStep>>()
         for (record in paths) {
             val fullPath = buildPathSteps(graph, record, targetClassName, targetId, gcRootIds)
                 ?: continue
             val signature = pathSignature(fullPath)
             if (signature !in seenSignatures) {
                 seenSignatures.add(signature)
-                onPath(fullPath)
-                pathCount++
-                totalPaths++
+                dedupedPaths.add(fullPath)
             }
         }
-        if (pathCount >= MAX_PATHS_PER_TARGET) {
+        onTarget(targetClassName, targetId, dedupedPaths.size)
+        for (path in dedupedPaths) {
+            onPath(path)
+            totalPaths++
+        }
+        if (dedupedPaths.size >= MAX_PATHS_PER_TARGET) {
             logger.info { "Hit $MAX_PATHS_PER_TARGET path limit for $targetClassName" }
         }
     }
