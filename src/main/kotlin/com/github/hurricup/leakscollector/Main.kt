@@ -9,7 +9,8 @@ import java.util.*
 import kotlin.time.measureTime
 
 private val logger = KotlinLogging.logger {}
-private const val TARGET_CLASS_NAME = "com.intellij.openapi.project.impl.ProjectImpl"
+private const val PROJECT_CLASS = "com.intellij.openapi.project.impl.ProjectImpl"
+private const val EDITOR_CLASS = "com.intellij.openapi.editor.impl.EditorImpl"
 
 private val version: String by lazy {
     val props = Properties()
@@ -36,6 +37,15 @@ private fun getContainerState(instance: HeapInstance, graph: HeapGraph): String?
         ?.let { (graph.findObjectById(it) as? HeapInstance)?.readAsJavaString() }
 }
 
+/**
+ * Reads the isReleased boolean field from an EditorImpl instance.
+ */
+private fun isEditorReleased(instance: HeapInstance): Boolean {
+    return instance.readFields()
+        .firstOrNull { it.name == "isReleased" }
+        ?.value?.asBoolean ?: false
+}
+
 fun main(args: Array<String>) {
     val hprofPath = args.firstOrNull() ?: run {
         System.err.println("""
@@ -44,7 +54,7 @@ fun main(args: Array<String>) {
             Usage: leaks-collector <path-to-hprof>
 
             Analyzes the given .hprof heap dump and prints retention paths from GC roots
-            to disposed ProjectImpl instances that are still held in memory.
+            to leaked objects (disposed ProjectImpl, released EditorImpl).
 
             On first run, a reverse index is built and cached as <file>.ri next to the
             heap dump. Subsequent runs load the cache for faster analysis.
@@ -66,13 +76,26 @@ fun main(args: Array<String>) {
             logger.info { "Heap graph opened" }
             val predicate: (HeapObjectContext) -> Boolean = { ctx ->
                 val obj = ctx.heapObject
-                if (obj is HeapInstance && obj.instanceClassName == TARGET_CLASS_NAME) {
-                    val state = getContainerState(obj, ctx.graph)
-                    if (state != "DISPOSE_COMPLETED") {
-                        logger.info { "Skipping alive $TARGET_CLASS_NAME@${obj.objectId} (state=$state)" }
-                        false
-                    } else {
-                        true
+                if (obj is HeapInstance) {
+                    when (obj.instanceClassName) {
+                        PROJECT_CLASS -> {
+                            val state = getContainerState(obj, ctx.graph)
+                            if (state != "DISPOSE_COMPLETED") {
+                                logger.info { "Skipping alive $PROJECT_CLASS@${obj.objectId} (state=$state)" }
+                                false
+                            } else {
+                                true
+                            }
+                        }
+                        EDITOR_CLASS -> {
+                            if (!isEditorReleased(obj)) {
+                                logger.info { "Skipping alive $EDITOR_CLASS@${obj.objectId} (isReleased=false)" }
+                                false
+                            } else {
+                                true
+                            }
+                        }
+                        else -> false
                     }
                 } else {
                     false
