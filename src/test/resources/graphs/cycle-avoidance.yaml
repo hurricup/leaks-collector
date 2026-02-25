@@ -1,28 +1,37 @@
 description: >
-  A cycle exists in the graph. The walk should detect it and
-  find the path through the non-cyclic branch.
+  The walk from parent1 encounters node_a, whose first parent in the
+  reverse index is node_b (which points back to node_a, forming a cycle).
+  The walk must detect the cycle and backtrack to try node_a's second
+  parent (bridge), which leads to the root.
 
 roots:
   - type: JavaFrame
     objects: [root]
 
 objects:
-  root:
-    class: com.example.Root
-    fields:
-      entry: node_a
-  node_a:
-    class: com.example.NodeA
-    fields:
-      next: node_b
-      project: target1
   node_b:
     class: com.example.NodeB
     fields:
-      next: node_a
+      back: node_a
+  root:
+    class: com.example.Root
+    fields:
+      bridge: bridge
+  bridge:
+    class: com.example.Bridge
+    fields:
+      ref: node_a
+  node_a:
+    class: com.example.NodeA
+    fields:
+      child: parent1
+  parent1:
+    class: com.example.Parent1
+    fields:
+      project: target1
 
 targets: [target1]
 target_class: com.example.ProjectImpl
 
 expected_paths:
-  - "Root[JavaFrame] -> com.example.Root.entry -> com.example.NodeA.project -> com.example.ProjectImpl"
+  - "Root[JavaFrame] -> com.example.Root.bridge -> com.example.Bridge.ref -> com.example.NodeA.child -> com.example.Parent1.project -> com.example.ProjectImpl"

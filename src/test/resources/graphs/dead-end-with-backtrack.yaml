@@ -1,20 +1,23 @@
-description: First parent branch is a dead end, backtracking finds the root via second branch
+description: >
+  First parent in reverse index is a dead end (no path to root).
+  Walk must backtrack and find the path through the second parent.
+  dead_end is defined before middle so it appears first in the reverse index.
 
 roots:
   - type: JniGlobal
     objects: [root]
 
 objects:
+  dead_end:
+    class: com.example.DeadEnd
+    fields:
+      project: target1
   root:
     class: com.example.Root
     fields:
       child: middle
   middle:
     class: com.example.Middle
-    fields:
-      project: target1
-  dead_end:
-    class: com.example.DeadEnd
     fields:
       project: target1
 
