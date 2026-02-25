@@ -17,6 +17,36 @@ class PathFinderTest {
     fun `simple chain`() = runGraphTest("simple-chain.yaml")
 
     @Test
+    fun `dead end with backtrack`() = runGraphTest("dead-end-with-backtrack.yaml")
+
+    @Test
+    fun `merge near root produces two paths`() = runGraphTest("merge-near-root.yaml")
+
+    @Test
+    fun `merge far from root skips redundant path`() = runGraphTest("merge-far-from-root-skip.yaml")
+
+    @Test
+    fun `merge far from root displaces longer prefix`() = runGraphTest("merge-far-displacement.yaml")
+
+    @Test
+    fun `cycle avoidance`() = runGraphTest("cycle-avoidance.yaml")
+
+    @Test
+    fun `array reference`() = runGraphTest("array-reference.yaml")
+
+    @Test
+    fun `target is root`() = runGraphTest("target-is-root.yaml")
+
+    @Test
+    fun `multiple targets`() = runGraphTest("multiple-targets.yaml")
+
+    @Test
+    fun `multiple roots`() = runGraphTest("multiple-roots.yaml")
+
+    @Test
+    fun `no path to target`() = runGraphTest("no-path.yaml")
+
+    @Test
     fun `schema rejects invalid yaml`() {
         assertFails("Schema should reject unknown fields") {
             loadTestGraph("invalid-schema.yaml")

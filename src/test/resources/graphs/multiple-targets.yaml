@@ -1,0 +1,28 @@
+description: Two targets reachable from the same root through different branches
+
+roots:
+  - type: JniGlobal
+    objects: [root]
+
+objects:
+  root:
+    class: com.example.Root
+    fields:
+      left: left
+      right: right
+  left:
+    class: com.example.Left
+    fields:
+      project: target1
+  right:
+    class: com.example.Right
+    fields:
+      project: target2
+
+targets: [target1, target2]
+target_class: com.example.ProjectImpl
+
+expected_path_count: 2
+expected_paths:
+  - "Root[JniGlobal] -> com.example.Root.left -> com.example.Left.project -> com.example.ProjectImpl"
+  - "Root[JniGlobal] -> com.example.Root.right -> com.example.Right.project -> com.example.ProjectImpl"

@@ -1,0 +1,52 @@
+description: >
+  Two paths merge at a node far from root (>= MERGE_THRESHOLD steps).
+  Second walk has same-length prefix — should be skipped, producing only 1 path.
+
+roots:
+  - type: VmInternal
+    objects: [root]
+
+objects:
+  root:
+    class: com.example.Root
+    fields:
+      a: a1
+  a1:
+    class: com.example.A1
+    fields:
+      a: a2
+  a2:
+    class: com.example.A2
+    fields:
+      a: a3
+  a3:
+    class: com.example.A3
+    fields:
+      a: a4
+  a4:
+    class: com.example.A4
+    fields:
+      a: a5
+  a5:
+    class: com.example.A5
+    fields:
+      left: shared
+      right: shared
+  shared:
+    class: com.example.Shared
+    fields:
+      left_child: left_parent
+      right_child: right_parent
+  left_parent:
+    class: com.example.LeftParent
+    fields:
+      project: target1
+  right_parent:
+    class: com.example.RightParent
+    fields:
+      project: target1
+
+targets: [target1]
+target_class: com.example.ProjectImpl
+
+expected_path_count: 1

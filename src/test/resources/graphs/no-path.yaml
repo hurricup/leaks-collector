@@ -1,0 +1,14 @@
+description: Target exists but has no parents — unreachable from any root
+
+roots:
+  - type: JniGlobal
+    objects: [root]
+
+objects:
+  root:
+    class: com.example.Root
+
+targets: [target1]
+target_class: com.example.ProjectImpl
+
+expected_path_count: 0

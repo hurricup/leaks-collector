@@ -1,0 +1,31 @@
+description: >
+  Two direct parents of the target share a node near the root
+  (within MERGE_THRESHOLD=5 steps from root).
+  Should produce two separate paths preserving diversity.
+
+roots:
+  - type: JniGlobal
+    objects: [root]
+
+objects:
+  root:
+    class: com.example.Root
+    fields:
+      left: left1
+      right: right1
+  left1:
+    class: com.example.Left
+    fields:
+      project: target1
+  right1:
+    class: com.example.Right
+    fields:
+      project: target1
+
+targets: [target1]
+target_class: com.example.ProjectImpl
+
+expected_path_count: 2
+expected_paths:
+  - "Root[JniGlobal] -> com.example.Root.left -> com.example.Left.project -> com.example.ProjectImpl"
+  - "Root[JniGlobal] -> com.example.Root.right -> com.example.Right.project -> com.example.ProjectImpl"

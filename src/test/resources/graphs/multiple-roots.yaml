@@ -1,0 +1,25 @@
+description: Two different GC roots both lead to the same target
+
+roots:
+  - type: JniGlobal
+    objects: [root_a]
+  - type: JavaFrame
+    objects: [root_b]
+
+objects:
+  root_a:
+    class: com.example.RootA
+    fields:
+      ref: target1
+  root_b:
+    class: com.example.RootB
+    fields:
+      ref: target1
+
+targets: [target1]
+target_class: com.example.ProjectImpl
+
+expected_path_count: 2
+expected_paths:
+  - "Root[JniGlobal] -> com.example.RootA.ref -> com.example.ProjectImpl"
+  - "Root[JavaFrame] -> com.example.RootB.ref -> com.example.ProjectImpl"

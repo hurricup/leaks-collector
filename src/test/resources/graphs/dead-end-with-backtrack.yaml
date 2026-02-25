@@ -1,0 +1,25 @@
+description: First parent branch is a dead end, backtracking finds the root via second branch
+
+roots:
+  - type: JniGlobal
+    objects: [root]
+
+objects:
+  root:
+    class: com.example.Root
+    fields:
+      child: middle
+  middle:
+    class: com.example.Middle
+    fields:
+      project: target1
+  dead_end:
+    class: com.example.DeadEnd
+    fields:
+      project: target1
+
+targets: [target1]
+target_class: com.example.ProjectImpl
+
+expected_paths:
+  - "Root[JniGlobal] -> com.example.Root.child -> com.example.Middle.project -> com.example.ProjectImpl"

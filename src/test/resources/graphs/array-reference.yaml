@@ -1,0 +1,20 @@
+description: Path through an array element
+
+roots:
+  - type: JniGlobal
+    objects: [holder]
+
+objects:
+  holder:
+    class: com.example.Holder
+    fields:
+      items: item_array
+  item_array:
+    class: java.lang.Object[]
+    elements: [null, null, target1]
+
+targets: [target1]
+target_class: com.example.ProjectImpl
+
+expected_paths:
+  - "Root[JniGlobal] -> com.example.Holder.items -> java.lang.Object[][2] -> com.example.ProjectImpl"

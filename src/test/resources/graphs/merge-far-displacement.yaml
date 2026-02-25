@@ -1,0 +1,57 @@
+description: >
+  Two paths merge far from root. Second walk has a shorter prefix
+  to the shared node — should displace the first path's prefix.
+
+roots:
+  - type: VmInternal
+    objects: [root]
+
+objects:
+  root:
+    class: com.example.Root
+    fields:
+      a: a1
+  a1:
+    class: com.example.A1
+    fields:
+      a: a2
+  a2:
+    class: com.example.A2
+    fields:
+      a: a3
+  a3:
+    class: com.example.A3
+    fields:
+      a: a4
+  a4:
+    class: com.example.A4
+    fields:
+      shared: shared
+  shared:
+    class: com.example.Shared
+    fields:
+      long_child: long_mid
+      short_child: short_parent
+  long_mid:
+    class: com.example.LongMid
+    fields:
+      next: long_parent
+  long_parent:
+    class: com.example.LongParent
+    fields:
+      project: target1
+  short_parent:
+    class: com.example.ShortParent
+    fields:
+      project: target1
+
+targets: [target1]
+target_class: com.example.ProjectImpl
+
+# The first walk goes target1 <- long_parent <- long_mid <- shared (3 steps).
+# The second walk goes target1 <- short_parent <- shared (2 steps).
+# shared is >= MERGE_THRESHOLD from root, so shorter prefix displaces.
+# Result: 1 path using short_parent.
+expected_path_count: 1
+expected_paths:
+  - "Root[VmInternal] -> com.example.Root.a -> com.example.A1.a -> com.example.A2.a -> com.example.A3.a -> com.example.A4.shared -> com.example.Shared.short_child -> com.example.ShortParent.project -> com.example.ProjectImpl"

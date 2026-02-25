@@ -1,0 +1,14 @@
+description: Target object is itself a GC root — path has zero intermediate steps
+
+roots:
+  - type: ThreadObject
+    objects: [target1]
+
+objects:
+  target1:
+    class: com.example.ProjectImpl
+
+targets: [target1]
+
+expected_paths:
+  - "Root[ThreadObject] -> com.example.ProjectImpl"
