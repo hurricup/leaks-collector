@@ -1,15 +1,27 @@
 package com.github.hurricup.leakscollector
 
+import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory
 import com.fasterxml.jackson.module.kotlin.registerKotlinModule
+import com.networknt.schema.JsonSchemaFactory
+import com.networknt.schema.SpecVersion
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFails
+import kotlin.test.fail
 
 class PathFinderTest {
 
     @Test
     fun `simple chain`() = runGraphTest("simple-chain.yaml")
+
+    @Test
+    fun `schema rejects invalid yaml`() {
+        assertFails("Schema should reject unknown fields") {
+            loadTestGraph("invalid-schema.yaml")
+        }
+    }
 
     private fun runGraphTest(fileName: String) {
         val testGraph = loadTestGraph(fileName)
@@ -43,11 +55,26 @@ class PathFinderTest {
         }
     }
 
+    private val yamlMapper = ObjectMapper(YAMLFactory()).registerKotlinModule()
+    private val jsonMapper = ObjectMapper()
+    private val schema = run {
+        val schemaStream = javaClass.classLoader.getResourceAsStream("test-graph-schema.json")
+            ?: error("Schema not found: test-graph-schema.json")
+        val schemaNode = jsonMapper.readTree(schemaStream)
+        JsonSchemaFactory.getInstance(SpecVersion.VersionFlag.V202012).getSchema(schemaNode)
+    }
+
     private fun loadTestGraph(fileName: String): TestGraph {
-        val mapper = ObjectMapper(YAMLFactory()).registerKotlinModule()
         val stream = javaClass.classLoader.getResourceAsStream("graphs/$fileName")
             ?: error("Test graph not found: graphs/$fileName")
-        return mapper.readValue(stream, TestGraph::class.java)
+        val yamlNode: JsonNode = yamlMapper.readTree(stream)
+
+        val errors = schema.validate(yamlNode)
+        if (errors.isNotEmpty()) {
+            fail("Schema validation failed for $fileName:\n${errors.joinToString("\n") { "  - ${it.message}" }}")
+        }
+
+        return yamlMapper.treeToValue(yamlNode, TestGraph::class.java)
     }
 
     private data class TestData(

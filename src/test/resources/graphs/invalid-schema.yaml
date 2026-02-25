@@ -1,0 +1,9 @@
+description: This file has an unknown field that should fail schema validation
+roots:
+  - type: JniGlobal
+    objects: [a]
+objects:
+  a:
+    class: Foo
+targets: [a]
+bogus_field: should fail

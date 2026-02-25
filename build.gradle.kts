@@ -18,6 +18,7 @@ dependencies {
     testImplementation(kotlin("test"))
     testImplementation("com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.18.2")
     testImplementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.18.2")
+    testImplementation("com.networknt:json-schema-validator:1.5.6")
 }
 
 kotlin {

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "test-graph-schema.json",
+  "$id": "https://github.com/hurricup/leaks-collector/test-graph-schema.json",
   "title": "Test Graph",
   "description": "Defines an object graph for testing the path-finding algorithm without real heap dumps.",
   "type": "object",
