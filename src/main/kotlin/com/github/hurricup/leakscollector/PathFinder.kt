@@ -286,10 +286,11 @@ private fun buildPathSteps(
     }
     ids.add(targetId)
 
-    // Resolve each edge: ids[i] -> ids[i+1]
+    // Resolve each edge: ids[i] -> ids[i+1], skipping duplicate root
     for (i in 0 until ids.size - 1) {
         val parentId = ids[i]
         val childId = ids[i + 1]
+        if (parentId == childId) continue
         steps.add(resolveEdge(graph, parentId, childId))
     }
 
@@ -329,6 +330,7 @@ private fun resolveEdge(graph: HeapGraph, parentId: Long, childId: Long): PathSt
         }
         is HeapPrimitiveArray -> { /* can't reference objects */ }
     }
+    logger.warn { "Could not resolve edge: ${classNameOf(parent)}@$parentId -> $childId (${parent::class.simpleName})" }
     return PathStep.FieldReference(classNameOf(parent), "?")
 }
 
