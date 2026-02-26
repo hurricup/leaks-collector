@@ -56,16 +56,23 @@ Fundamental shift: instead of building a reverse index and walking backward from
 
 **Core idea:** The goal is to find **leak causes**, not enumerate every leaked target. A leak cause is a retention path from a GC root to a target. Walking forward means you discover the cause first (the retention chain) and the target second (at the end).
 
-**Algorithm:**
+**Algorithm (hybrid DFS + BFS):**
 1. Pre-scan to identify target object IDs (same as now)
-2. DFS from GC roots following strong references
-3. Blacklist (mark visited) every node as you enter it
-4. Skip leaf types, weak references, already-visited nodes (same filtering as now)
-5. When you hit a target:
+2. DFS from GC roots following strong references down to the infrastructure boundary (merge point)
+3. At the merge point, switch to BFS — explore breadth-first from each branch
+4. Blacklist (mark visited) every node as you enter it
+5. Skip leaf types, weak references, already-visited nodes (same filtering as now)
+6. When you hit a target:
    - Store the current path (root → ... → target) as a result
    - Do NOT descend into the target (everything below it is likely the same cause)
-   - Backtrack to the infrastructure boundary (merge point) and continue DFS from the next sibling
-6. The next Disposer array entry / CefServer map entry / etc. may lead to the same or different target via a different cause — each is a separate finding
+   - Backtrack/continue from the merge point with the next sibling
+7. The next Disposer array entry / CefServer map entry / etc. may lead to the same or different target via a different cause — each is a separate finding
+
+**Why hybrid DFS + BFS:**
+- DFS handles the tree-like shared prefix from roots efficiently (no queue overhead)
+- BFS after the merge point **guarantees the shortest path from merge point to target** — the most direct explanation of why the object is retained
+- BFS handles fan-out cleanly: when 10k array entries point to the same object, it's visited once at the first level and skipped on subsequent enqueues
+- DFS alone finds arbitrary-length paths depending on field ordering; BFS finds the most useful path
 
 **What we gain:**
 - No reverse index needed — no 50s build time, no 83MB cache file, no `.ri` format
@@ -88,7 +95,7 @@ Fundamental shift: instead of building a reverse index and walking backward from
 
 3. **Missed targets.** If target A and target B are both reachable through the same intermediate node (between infrastructure boundary and target), and we find A first and backtrack past that node, B becomes unreachable (blacklisted). This is acceptable if they share the same cause, but not if they have genuinely different causes that happen to share a common intermediate.
 
-4. **Path quality.** DFS finds A path, not THE shortest path. The first path found depends on field ordering in objects, which is arbitrary. Current approach (backward walk with displacement) has more control over path selection. DFS paths could be unnecessarily long if they wander through a deep subtree before reaching the target.
+4. **Path quality.** Solved by the hybrid approach: BFS after the merge point guarantees the shortest path from merge point to target. The shared prefix (root to merge point) is fixed infrastructure, so overall path quality is good.
 
 5. **Re-traversal after backtrack.** If we backtrack to the merge point and un-blacklist nodes between merge point and target (to allow finding them via other routes), we might re-traverse large subtrees. If we DON'T un-blacklist, we miss targets reachable only through those intermediate nodes.
 
