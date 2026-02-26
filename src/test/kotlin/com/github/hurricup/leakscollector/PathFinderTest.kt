@@ -73,7 +73,7 @@ class PathFinderTest {
                 ?: error("No class for target $targetName: define it in objects or set target_class")
 
             val allTargetIds = targetIds.toHashSet()
-            val records = findPathsForTarget(targetId, reverseIndex, rootObjectIds, allTargetIds)
+            val records = findPathsForTarget(targetId, reverseIndex, rootObjectIds, allTargetIds, sharedPrefixDepth = 3)
             for (record in records) {
                 val path = formatTestPath(record, targetId, targetClass, objectIds, objectDefs, testGraph.roots)
                 allPaths.add(path)

@@ -45,9 +45,8 @@ private val LEAF_ARRAY_CLASSES = setOf(
 )
 
 private const val MAX_PATHS_PER_TARGET = 100
-private const val MERGE_THRESHOLD = 5
-/** Nodes within this many steps from root are not claimed globally (shared infrastructure). */
-private const val CLAIM_THRESHOLD = 8
+/** Nodes within this many steps from root are considered shared infrastructure — not merged or claimed. */
+private const val SHARED_PREFIX_DEPTH = 8
 
 /**
  * A recorded path as a list of object IDs from target toward root.
@@ -162,7 +161,7 @@ fun findPaths(
         // Claim nodes far from root for future targets
         for (record in paths) {
             val ids = record.idsFromTarget
-            val farFromRootCount = maxOf(0, ids.size - CLAIM_THRESHOLD + 1)
+            val farFromRootCount = maxOf(0, ids.size - SHARED_PREFIX_DEPTH + 1)
             for (i in 0 until farFromRootCount) {
                 claimedNodes.add(ids[i])
             }
@@ -208,6 +207,7 @@ internal fun findPathsForTarget(
     rootObjectIds: Set<Long>,
     allTargetIds: Set<Long> = emptySet(),
     claimedNodes: Set<Long> = emptySet(),
+    sharedPrefixDepth: Int = SHARED_PREFIX_DEPTH,
 ): List<PathRecord> {
     if (targetId in rootObjectIds) {
         return listOf(PathRecord(emptyList(), targetId))
@@ -245,7 +245,7 @@ internal fun findPathsForTarget(
 
                 val existingStepsFromRoot = existingRecord.idsFromTarget.size - existingStepsFromTarget
 
-                if (existingStepsFromRoot < MERGE_THRESHOLD) {
+                if (existingStepsFromRoot < sharedPrefixDepth) {
                     // Shared node is near root — genuine diversity, create new path
                     val oldSuffix = existingRecord.idsFromTarget.subList(
                         existingStepsFromTarget, existingRecord.idsFromTarget.size
