@@ -56,6 +56,9 @@ class PathFinderTest {
     fun `cascading fallback discovers all unique paths`() = runGraphTest("cascading-fallback.yaml")
 
     @Test
+    fun `cascading fallback with dependent target`() = runGraphTest("cascading-with-dependent.yaml")
+
+    @Test
     fun `cross-target path is dead end`() = runGraphTest("cross-target-dead-end.yaml")
 
     @Test

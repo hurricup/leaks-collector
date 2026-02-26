@@ -1,0 +1,65 @@
+description: >
+  Three targets share the same prefix. All 3 share path A.
+  Targets 2 and 3 also share path B. Target 3 has no unique path.
+  Claiming: target1 gets A, target2 gets B, target3 becomes dependent.
+
+roots:
+  - type: JniGlobal
+    objects: [root]
+
+objects:
+  root:
+    class: com.example.Root
+    fields:
+      a: a1
+  a1:
+    class: com.example.A1
+    fields:
+      a: a2
+  a2:
+    class: com.example.A2
+    fields:
+      pa: pathA_node
+      pb: pathB_node
+  pathA_node:
+    class: com.example.PathA
+    fields:
+      b1: pathA_branch1
+      b2: pathA_branch2
+      b3: pathA_branch3
+  pathA_branch1:
+    class: com.example.PathABranch1
+    fields:
+      target: target1
+  pathA_branch2:
+    class: com.example.PathABranch2
+    fields:
+      target: target2
+  pathA_branch3:
+    class: com.example.PathABranch3
+    fields:
+      target: target3
+  pathB_node:
+    class: com.example.PathB
+    fields:
+      b2: pathB_branch2
+      b3: pathB_branch3
+  pathB_branch2:
+    class: com.example.PathBBranch2
+    fields:
+      target: target2
+  pathB_branch3:
+    class: com.example.PathBBranch3
+    fields:
+      target: target3
+
+targets: [target1, target2, target3]
+target_class: com.example.Target
+
+# target1: walks path A. Claims pathA_branch1, pathA_node.
+# target2: path A blocked. Walks path B. Claims pathB_branch2, pathB_node.
+# target3: path A blocked, path B blocked. No path — dependent.
+expected_path_count: 2
+expected_paths:
+  - "Root[JniGlobal] -> com.example.Root.a -> com.example.A1.a -> com.example.A2.pa -> com.example.PathA.b1 -> com.example.PathABranch1.target -> com.example.Target"
+  - "Root[JniGlobal] -> com.example.Root.a -> com.example.A1.a -> com.example.A2.pb -> com.example.PathB.b2 -> com.example.PathBBranch2.target -> com.example.Target"
