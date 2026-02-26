@@ -50,10 +50,58 @@ Working tool that finds diverse retention paths from GC roots to leaked objects.
 
 ## Future Ideas
 
-### 1. Dynamic merge threshold (anchor-based)
-Fixed `SHARED_PREFIX_DEPTH=8` doesn't work for all cases — see `.claude/notes.md` for details. Needs an anchor-based approach where known infrastructure classes shift the merge boundary dynamically.
+### 1. Forward DFS from roots (algorithm redesign)
 
-### 2. User-friendly CLI workflow
+Fundamental shift: instead of building a reverse index and walking backward from targets, do a single forward DFS from GC roots and discover leak causes as you go.
+
+**Core idea:** The goal is to find **leak causes**, not enumerate every leaked target. A leak cause is a retention path from a GC root to a target. Walking forward means you discover the cause first (the retention chain) and the target second (at the end).
+
+**Algorithm:**
+1. Pre-scan to identify target object IDs (same as now)
+2. DFS from GC roots following strong references
+3. Blacklist (mark visited) every node as you enter it
+4. Skip leaf types, weak references, already-visited nodes (same filtering as now)
+5. When you hit a target:
+   - Store the current path (root → ... → target) as a result
+   - Do NOT descend into the target (everything below it is likely the same cause)
+   - Backtrack to the infrastructure boundary (merge point) and continue DFS from the next sibling
+6. The next Disposer array entry / CefServer map entry / etc. may lead to the same or different target via a different cause — each is a separate finding
+
+**What we gain:**
+- No reverse index needed — no 50s build time, no 83MB cache file, no `.ri` format
+- Single pass through the graph
+- Cross-target filtering is free (don't descend into targets)
+- Claiming/merging logic disappears — the blacklist + backtrack-to-merge-point does the same job
+- Focus on causes, not targets — 50 editors leaking through the same Disposer entry produce one finding, not 50
+- Aligns better with Shark's API (forward references are native)
+
+**What changes:**
+- No need for `findPathsForTarget`, `walkToRoot`, reverse index builder, cache
+- The infrastructure boundary concept (currently `SHARED_PREFIX_DEPTH`) becomes "how far to backtrack after finding a target" instead of "when to merge paths"
+- Output shifts from per-target grouping to per-cause listing
+
+**Potential problems to think through:**
+
+1. **DFS stack depth.** Heap object graphs can be very deep (thousands of levels via linked lists, trees, etc.). DFS stack could overflow or be very large. May need iterative DFS with explicit stack, and possibly a depth limit.
+
+2. **Infrastructure boundary detection during forward walk.** Currently SHARED_PREFIX_DEPTH is a fixed step count from root. In forward DFS, we need to know "where is the merge point" to decide how far to backtrack. The anchor-based approach (known infrastructure classes) is still needed — same open question as before, but now it controls backtrack depth instead of merge threshold.
+
+3. **Missed targets.** If target A and target B are both reachable through the same intermediate node (between infrastructure boundary and target), and we find A first and backtrack past that node, B becomes unreachable (blacklisted). This is acceptable if they share the same cause, but not if they have genuinely different causes that happen to share a common intermediate.
+
+4. **Path quality.** DFS finds A path, not THE shortest path. The first path found depends on field ordering in objects, which is arbitrary. Current approach (backward walk with displacement) has more control over path selection. DFS paths could be unnecessarily long if they wander through a deep subtree before reaching the target.
+
+5. **Re-traversal after backtrack.** If we backtrack to the merge point and un-blacklist nodes between merge point and target (to allow finding them via other routes), we might re-traverse large subtrees. If we DON'T un-blacklist, we miss targets reachable only through those intermediate nodes.
+
+6. **Shark API constraints.** `HeapObject.readRecord()` and field traversal require random access to the hprof file. DFS visits nodes in an unpredictable order, so IO will be random (not sequential). The reverse index approach reads the file sequentially once (during build) and then works from memory. Forward DFS may be slower due to random IO patterns.
+
+7. **Multiple paths per target.** Current approach finds 12+ paths for a single ProjectImpl through different subsystems. Forward DFS would find each one naturally IF the subsystems are in different branches of the DFS tree (e.g., different Disposer entries). But if two paths to the same target share a node that gets blacklisted during the first traversal, the second path is lost.
+
+8. **Testing.** Current YAML test harness builds synthetic reverse indexes. Forward DFS would need a different test approach — synthetic forward graphs or mocking Shark's HeapGraph API.
+
+### 2. Dynamic merge threshold (anchor-based)
+Fixed `SHARED_PREFIX_DEPTH=8` doesn't work for all cases — see `.claude/notes.md` for details. Needs an anchor-based approach where known infrastructure classes shift the merge boundary dynamically. Relevant to both current algorithm and forward DFS (where it controls backtrack depth).
+
+### 3. User-friendly CLI workflow
 Provide interactive CLI that:
 - Runs a command to find IDE processes (or shows all JVM processes)
 - Lets user pick a process
