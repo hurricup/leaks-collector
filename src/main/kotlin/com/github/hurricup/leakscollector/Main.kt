@@ -3,8 +3,12 @@ package com.github.hurricup.leakscollector
 import io.github.oshai.kotlinlogging.KotlinLogging
 import shark.HeapGraph
 import shark.HeapObject.HeapInstance
+import shark.HprofHeader
 import shark.HprofHeapGraph.Companion.openHeapGraph
 import java.io.File
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.*
 import kotlin.time.measureTime
 
@@ -46,6 +50,24 @@ private fun isEditorReleased(instance: HeapInstance): Boolean {
         ?.value?.asBoolean ?: false
 }
 
+private fun printReportHeader(hprofFile: File, header: HprofHeader, graph: HeapGraph) {
+    val fileSizeMb = "%.1f".format(hprofFile.length() / (1024.0 * 1024.0))
+    val timestamp = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss z")
+        .withZone(ZoneId.systemDefault())
+        .format(Instant.ofEpochMilli(header.heapDumpTimestamp))
+    val pointerSize = header.identifierByteSize * 8
+
+    println("# leaks-collector $version")
+    println("# File: ${hprofFile.absolutePath}")
+    println("# Size: $fileSizeMb MB")
+    println("# Heap dump timestamp: $timestamp")
+    println("# Hprof version: ${header.version.versionString}")
+    println("# JVM pointer size: $pointerSize-bit")
+    println("# Objects: ${graph.objectCount} (${graph.classCount} classes, ${graph.instanceCount} instances, ${graph.objectArrayCount} object arrays, ${graph.primitiveArrayCount} primitive arrays)")
+    println("# GC roots: ${graph.gcRoots.size}")
+    println()
+}
+
 fun main(args: Array<String>) {
     val hprofPath = args.firstOrNull() ?: run {
         System.err.println("""
@@ -72,8 +94,12 @@ fun main(args: Array<String>) {
 
     logger.info { "Opening heap graph: $hprofPath" }
     measureTime {
+        val header = HprofHeader.parseHeaderOf(hprofFile)
         hprofFile.openHeapGraph().use { graph ->
             logger.info { "Heap graph opened" }
+
+            printReportHeader(hprofFile, header, graph)
+
             val predicate: (HeapObjectContext) -> Boolean = { ctx ->
                 val obj = ctx.heapObject
                 if (obj is HeapInstance) {
