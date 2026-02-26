@@ -1,0 +1,61 @@
+description: >
+  Four targets share the same root prefix up to the shared prefix depth.
+  Past that point, they split into two branches with two targets each.
+  Each pair claims its branch, so 2 paths found, 2 targets dependent.
+
+roots:
+  - type: JniGlobal
+    objects: [root]
+
+objects:
+  root:
+    class: com.example.Root
+    fields:
+      a: a1
+  a1:
+    class: com.example.A1
+    fields:
+      a: a2
+  a2:
+    class: com.example.A2
+    fields:
+      left: left
+      right: right
+  left:
+    class: com.example.Left
+    fields:
+      c1: left_child1
+      c2: left_child2
+  left_child1:
+    class: com.example.LeftChild1
+    fields:
+      target: target1
+  left_child2:
+    class: com.example.LeftChild2
+    fields:
+      target: target2
+  right:
+    class: com.example.Right
+    fields:
+      c1: right_child1
+      c2: right_child2
+  right_child1:
+    class: com.example.RightChild1
+    fields:
+      target: target3
+  right_child2:
+    class: com.example.RightChild2
+    fields:
+      target: target4
+
+targets: [target1, target2, target3, target4]
+target_class: com.example.Target
+
+# Shared prefix: root(0) -> a1(1) -> a2(2) — within TH=3, not claimed.
+# Past TH: left(3), right(3) — claimed after first target in each branch.
+# target1 found, claims left_child1 + left. target2 dependent.
+# target3 found, claims right_child1 + right. target4 dependent.
+expected_path_count: 2
+expected_paths:
+  - "Root[JniGlobal] -> com.example.Root.a -> com.example.A1.a -> com.example.A2.left -> com.example.Left.c1 -> com.example.LeftChild1.target -> com.example.Target"
+  - "Root[JniGlobal] -> com.example.Root.a -> com.example.A1.a -> com.example.A2.right -> com.example.Right.c1 -> com.example.RightChild1.target -> com.example.Target"

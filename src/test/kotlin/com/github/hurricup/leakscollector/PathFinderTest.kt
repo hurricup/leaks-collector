@@ -50,6 +50,9 @@ class PathFinderTest {
     fun `four targets diverge from shared prefix`() = runGraphTest("shared-prefix-four-targets.yaml")
 
     @Test
+    fun `two pairs with separate shared paths`() = runGraphTest("two-pairs-shared-paths.yaml")
+
+    @Test
     fun `cross-target path is dead end`() = runGraphTest("cross-target-dead-end.yaml")
 
     @Test
@@ -88,7 +91,8 @@ class PathFinderTest {
 
             for (record in records) {
                 val ids = record.idsFromTarget
-                val farFromRootCount = maxOf(0, ids.size - sharedPrefixDepth + 1)
+                val stepsExcludingRoot = ids.size - 1
+                val farFromRootCount = maxOf(0, stepsExcludingRoot - sharedPrefixDepth + 1)
                 for (i in 0 until farFromRootCount) {
                     claimedNodes.add(ids[i])
                 }

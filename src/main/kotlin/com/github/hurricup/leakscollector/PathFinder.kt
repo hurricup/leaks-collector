@@ -158,10 +158,12 @@ fun findPaths(
             continue
         }
 
-        // Claim nodes far from root for future targets
+        // Claim nodes far from root for future targets.
+        // idsFromTarget includes the root object as last element — exclude it from counting.
         for (record in paths) {
             val ids = record.idsFromTarget
-            val farFromRootCount = maxOf(0, ids.size - SHARED_PREFIX_DEPTH + 1)
+            val stepsExcludingRoot = ids.size - 1
+            val farFromRootCount = maxOf(0, stepsExcludingRoot - SHARED_PREFIX_DEPTH + 1)
             for (i in 0 until farFromRootCount) {
                 claimedNodes.add(ids[i])
             }
