@@ -133,6 +133,7 @@ fun findPaths(
 
     logger.info { "Finding paths..." }
 
+    val targetIdSet = targetIds.toHashSet()
     val allEntries = ArrayList<Triple<Long, String, List<PathStep>>>()
 
     for (targetId in targetIds) {
@@ -140,7 +141,7 @@ fun findPaths(
         val targetClassName = classNameOf(targetObj)
         val directParents = reverseIndex[targetId]?.size ?: 0
         logger.info { "Target: $targetClassName@$targetId, direct parents: $directParents" }
-        val paths = findPathsForTarget(targetId, reverseIndex, gcRootIds.keys)
+        val paths = findPathsForTarget(targetId, reverseIndex, gcRootIds.keys, targetIdSet)
         logger.info { "  Found ${paths.size} raw paths" }
         val seenSignatures = HashSet<String>()
         for (record in paths) {
@@ -171,6 +172,7 @@ internal fun findPathsForTarget(
     targetId: Long,
     reverseIndex: Map<Long, LongArray>,
     rootObjectIds: Set<Long>,
+    allTargetIds: Set<Long> = emptySet(),
 ): List<PathRecord> {
     if (targetId in rootObjectIds) {
         return listOf(PathRecord(emptyList(), targetId))
@@ -184,8 +186,9 @@ internal fun findPathsForTarget(
 
     for (parentId in directParents) {
         if (paths.size >= MAX_PATHS_PER_TARGET) break
+        if (parentId in allTargetIds) continue
 
-        val walkResult = walkToRoot(parentId, targetId, reverseIndex, rootObjectIds, nodeOwner)
+        val walkResult = walkToRoot(parentId, targetId, reverseIndex, rootObjectIds, nodeOwner, allTargetIds)
 
         when (walkResult) {
             is WalkResult.FoundRoot -> {
@@ -265,6 +268,7 @@ private fun walkToRoot(
     reverseIndex: Map<Long, LongArray>,
     rootObjectIds: Set<Long>,
     nodeOwner: Map<Long, Pair<Int, Int>>,
+    allTargetIds: Set<Long> = emptySet(),
 ): WalkResult {
     val idsFromTarget = ArrayList<Long>()
     idsFromTarget.add(startParentId)
@@ -292,7 +296,7 @@ private fun walkToRoot(
         val parents = reverseIndex[currentId]
         val startIdx = parentIndices.last()
         val nextParent = parents?.let { p ->
-            (startIdx until p.size).firstOrNull { p[it] !in visitedInWalk }
+            (startIdx until p.size).firstOrNull { p[it] !in visitedInWalk && p[it] !in allTargetIds }
         }
 
         if (nextParent != null) {

@@ -1,0 +1,29 @@
+description: >
+  Editor leaks only through a leaked project. Since the project is also
+  a target, the editor's path through it is a dead end. The editor should
+  have no independent paths; the project should still have its own path.
+
+roots:
+  - type: JniGlobal
+    objects: [root]
+
+objects:
+  root:
+    class: com.example.Root
+    fields:
+      ref: middle
+  middle:
+    class: com.example.Middle
+    fields:
+      project: project
+  project:
+    class: com.example.ProjectImpl
+    fields:
+      editor: editor
+
+targets: [project, editor]
+target_class: com.example.EditorImpl
+
+expected_path_count: 1
+expected_paths:
+  - "Root[JniGlobal] -> com.example.Root.ref -> com.example.Middle.project -> com.example.ProjectImpl"

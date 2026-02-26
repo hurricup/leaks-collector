@@ -1,0 +1,30 @@
+description: >
+  Editor leaks via two paths: one through a leaked project (dead end)
+  and one independent. Only the independent path should be found.
+
+roots:
+  - type: JniGlobal
+    objects: [root]
+
+objects:
+  root:
+    class: com.example.Root
+    fields:
+      left: project
+      right: holder
+  project:
+    class: com.example.ProjectImpl
+    fields:
+      editor: editor
+  holder:
+    class: com.example.Holder
+    fields:
+      editor: editor
+
+targets: [project, editor]
+target_class: com.example.EditorImpl
+
+expected_path_count: 2
+expected_paths:
+  - "Root[JniGlobal] -> com.example.Root.left -> com.example.ProjectImpl"
+  - "Root[JniGlobal] -> com.example.Root.right -> com.example.Holder.editor -> com.example.EditorImpl"

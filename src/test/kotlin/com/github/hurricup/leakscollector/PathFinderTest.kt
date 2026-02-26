@@ -47,6 +47,12 @@ class PathFinderTest {
     fun `no path to target`() = runGraphTest("no-path.yaml")
 
     @Test
+    fun `cross-target path is dead end`() = runGraphTest("cross-target-dead-end.yaml")
+
+    @Test
+    fun `cross-target filters only path through other target`() = runGraphTest("cross-target-partial.yaml")
+
+    @Test
     fun `schema rejects invalid yaml`() {
         assertFails("Schema should reject unknown fields") {
             loadTestGraph("invalid-schema.yaml")
@@ -66,7 +72,8 @@ class PathFinderTest {
                 ?: testGraph.target_class
                 ?: error("No class for target $targetName: define it in objects or set target_class")
 
-            val records = findPathsForTarget(targetId, reverseIndex, rootObjectIds)
+            val allTargetIds = targetIds.toHashSet()
+            val records = findPathsForTarget(targetId, reverseIndex, rootObjectIds, allTargetIds)
             for (record in records) {
                 val path = formatTestPath(record, targetId, targetClass, objectIds, objectDefs, testGraph.roots)
                 allPaths.add(path)
