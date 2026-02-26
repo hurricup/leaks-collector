@@ -47,6 +47,9 @@ class PathFinderTest {
     fun `no path to target`() = runGraphTest("no-path.yaml")
 
     @Test
+    fun `four targets diverge from shared prefix`() = runGraphTest("shared-prefix-four-targets.yaml")
+
+    @Test
     fun `cross-target path is dead end`() = runGraphTest("cross-target-dead-end.yaml")
 
     @Test
@@ -65,16 +68,30 @@ class PathFinderTest {
 
         val targetIds = testGraph.targets.map { objectIds.getValue(it) }
 
+        val sharedPrefixDepth = 3
+        val allTargetIds = targetIds.toHashSet()
+        val claimedNodes = HashSet<Long>()
         val allPaths = mutableListOf<String>()
+        val dependentTargets = mutableListOf<String>()
         for (targetId in targetIds) {
             val targetName = objectIds.entries.first { it.value == targetId }.key
             val targetClass = testGraph.objects?.get(targetName)?.`class`
                 ?: testGraph.target_class
                 ?: error("No class for target $targetName: define it in objects or set target_class")
 
-            val allTargetIds = targetIds.toHashSet()
-            val records = findPathsForTarget(targetId, reverseIndex, rootObjectIds, allTargetIds, sharedPrefixDepth = 3)
+            val records = findPathsForTarget(targetId, reverseIndex, rootObjectIds, allTargetIds, claimedNodes, sharedPrefixDepth)
+
+            if (records.isEmpty()) {
+                dependentTargets.add(targetClass)
+                continue
+            }
+
             for (record in records) {
+                val ids = record.idsFromTarget
+                val farFromRootCount = maxOf(0, ids.size - sharedPrefixDepth + 1)
+                for (i in 0 until farFromRootCount) {
+                    claimedNodes.add(ids[i])
+                }
                 val path = formatTestPath(record, targetId, targetClass, objectIds, objectDefs, testGraph.roots)
                 allPaths.add(path)
             }

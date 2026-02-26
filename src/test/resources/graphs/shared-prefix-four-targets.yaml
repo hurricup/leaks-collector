@@ -1,0 +1,52 @@
+description: >
+  Four targets share a common path prefix from root, then diverge.
+  After the first target's path is found, its nodes far from root
+  are claimed. The remaining 3 targets become dependent.
+
+roots:
+  - type: JniGlobal
+    objects: [root]
+
+objects:
+  root:
+    class: com.example.Root
+    fields:
+      a: a1
+  a1:
+    class: com.example.A1
+    fields:
+      a: a2
+  a2:
+    class: com.example.A2
+    fields:
+      a: diverge
+  diverge:
+    class: com.example.Diverge
+    fields:
+      b1: branch1
+      b2: branch2
+      b3: branch3
+      b4: branch4
+  branch1:
+    class: com.example.Branch1
+    fields:
+      target: target1
+  branch2:
+    class: com.example.Branch2
+    fields:
+      target: target2
+  branch3:
+    class: com.example.Branch3
+    fields:
+      target: target3
+  branch4:
+    class: com.example.Branch4
+    fields:
+      target: target4
+
+targets: [target1, target2, target3, target4]
+target_class: com.example.Target
+
+expected_path_count: 1
+expected_paths:
+  - "Root[JniGlobal] -> com.example.Root.a -> com.example.A1.a -> com.example.A2.a -> com.example.Diverge.b1 -> com.example.Branch1.target -> com.example.Target"
