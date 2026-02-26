@@ -129,7 +129,7 @@ fun main(args: Array<String>) {
             }
 
             var first = true
-            findPaths(graph, hprofFile, predicate) { group ->
+            findPaths(graph, hprofFile, predicate, onGroup = { group ->
                 if (!first) println()
                 first = false
                 val ids = group.targetIds
@@ -140,7 +140,15 @@ fun main(args: Array<String>) {
                     println("# $className (${ids.size} instances)")
                 }
                 println(formatPath(group.examplePath))
-            }
+            }, onDependentTargets = { dep ->
+                if (!first) println()
+                first = false
+                if (dep.targetIds.size == 1) {
+                    println("# ${dep.className}@${dep.targetIds[0]} — held by a path above")
+                } else {
+                    println("# ${dep.className} (${dep.targetIds.size} instances) — held by a path above")
+                }
+            })
         }
     }.also { logger.info { "Total time: $it" } }
 }

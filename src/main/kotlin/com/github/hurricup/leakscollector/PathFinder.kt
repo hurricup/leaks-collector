@@ -46,6 +46,8 @@ private val LEAF_ARRAY_CLASSES = setOf(
 
 private const val MAX_PATHS_PER_TARGET = 100
 private const val MERGE_THRESHOLD = 5
+/** Nodes within this many steps from root are not claimed globally (shared infrastructure). */
+private const val CLAIM_THRESHOLD = 8
 
 /**
  * A recorded path as a list of object IDs from target toward root.
@@ -96,11 +98,17 @@ internal fun <T> groupPathsBySignature(
     return groups.map { (sig, pair) -> PathGroup(sig, pair.first, pair.second) }
 }
 
+data class DependentTargets(
+    val className: String,
+    val targetIds: List<Long>,
+)
+
 fun findPaths(
     graph: HeapGraph,
     hprofFile: File,
     predicate: (HeapObjectContext) -> Boolean,
     onGroup: (PathGroup<List<PathStep>>) -> Unit,
+    onDependentTargets: (DependentTargets) -> Unit = {},
 ) {
     logger.info { "Scanning for target objects..." }
     var targetIds: List<Long> = emptyList()
@@ -134,15 +142,32 @@ fun findPaths(
     logger.info { "Finding paths..." }
 
     val targetIdSet = targetIds.toHashSet()
+    val claimedNodes = HashSet<Long>()
     val allEntries = ArrayList<Triple<Long, String, List<PathStep>>>()
+    val dependentTargetIds = ArrayList<Pair<Long, String>>() // targetId to className
 
     for (targetId in targetIds) {
         val targetObj = graph.findObjectById(targetId)
         val targetClassName = classNameOf(targetObj)
         val directParents = reverseIndex[targetId]?.size ?: 0
         logger.info { "Target: $targetClassName@$targetId, direct parents: $directParents" }
-        val paths = findPathsForTarget(targetId, reverseIndex, gcRootIds.keys, targetIdSet)
+        val paths = findPathsForTarget(targetId, reverseIndex, gcRootIds.keys, targetIdSet, claimedNodes)
         logger.info { "  Found ${paths.size} raw paths" }
+
+        if (paths.isEmpty()) {
+            dependentTargetIds.add(targetId to targetClassName)
+            continue
+        }
+
+        // Claim nodes far from root for future targets
+        for (record in paths) {
+            val ids = record.idsFromTarget
+            val farFromRootCount = maxOf(0, ids.size - CLAIM_THRESHOLD + 1)
+            for (i in 0 until farFromRootCount) {
+                claimedNodes.add(ids[i])
+            }
+        }
+
         val seenSignatures = HashSet<String>()
         for (record in paths) {
             val fullPath = buildPathSteps(graph, record, targetClassName, targetId, gcRootIds)
@@ -163,6 +188,15 @@ fun findPaths(
     for (group in groups) {
         onGroup(group)
     }
+
+    if (dependentTargetIds.isNotEmpty()) {
+        // Group dependent targets by class name
+        val byClass = dependentTargetIds.groupBy({ it.second }, { it.first })
+        logger.info { "Found ${dependentTargetIds.size} dependent targets (held by paths above)" }
+        for ((className, ids) in byClass) {
+            onDependentTargets(DependentTargets(className, ids))
+        }
+    }
 }
 
 /**
@@ -173,6 +207,7 @@ internal fun findPathsForTarget(
     reverseIndex: Map<Long, LongArray>,
     rootObjectIds: Set<Long>,
     allTargetIds: Set<Long> = emptySet(),
+    claimedNodes: Set<Long> = emptySet(),
 ): List<PathRecord> {
     if (targetId in rootObjectIds) {
         return listOf(PathRecord(emptyList(), targetId))
@@ -187,8 +222,9 @@ internal fun findPathsForTarget(
     for (parentId in directParents) {
         if (paths.size >= MAX_PATHS_PER_TARGET) break
         if (parentId in allTargetIds) continue
+        if (parentId in claimedNodes) continue
 
-        val walkResult = walkToRoot(parentId, targetId, reverseIndex, rootObjectIds, nodeOwner, allTargetIds)
+        val walkResult = walkToRoot(parentId, targetId, reverseIndex, rootObjectIds, nodeOwner, allTargetIds, claimedNodes)
 
         when (walkResult) {
             is WalkResult.FoundRoot -> {
@@ -269,6 +305,7 @@ private fun walkToRoot(
     rootObjectIds: Set<Long>,
     nodeOwner: Map<Long, Pair<Int, Int>>,
     allTargetIds: Set<Long> = emptySet(),
+    claimedNodes: Set<Long> = emptySet(),
 ): WalkResult {
     val idsFromTarget = ArrayList<Long>()
     idsFromTarget.add(startParentId)
@@ -293,10 +330,22 @@ private fun walkToRoot(
             return WalkResult.Merged(idsFromTarget.toList(), currentId)
         }
 
+        if (currentId in claimedNodes) {
+            // Node already claimed by a previous target's path — treat as dead end
+            if (idsFromTarget.size <= 1 || backtracksRemaining <= 0) {
+                return WalkResult.DeadEnd
+            }
+            backtracksRemaining--
+            idsFromTarget.removeLast()
+            parentIndices.removeLast()
+            currentId = idsFromTarget.last()
+            continue
+        }
+
         val parents = reverseIndex[currentId]
         val startIdx = parentIndices.last()
         val nextParent = parents?.let { p ->
-            (startIdx until p.size).firstOrNull { p[it] !in visitedInWalk && p[it] !in allTargetIds }
+            (startIdx until p.size).firstOrNull { p[it] !in visitedInWalk && p[it] !in allTargetIds && p[it] !in claimedNodes }
         }
 
         if (nextParent != null) {
