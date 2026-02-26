@@ -1,12 +1,13 @@
 # Development Notes
 
 ## Key files
-- `PathFinder.kt` — core algorithm (~500 lines), `findPathsForTarget` is `internal` for testing
+- `PathFinder.kt` — core algorithm (~580 lines), `findPathsForTarget` is `internal` for testing
 - `PathFormatter.kt` — output formatting
 - `ReverseIndexCache.kt` — gzip binary cache with hprof fingerprint (v3)
-- `Main.kt` — CLI entry, disposed ProjectImpl filter
-- `PathFinderTest.kt` — YAML-based test harness with schema validation
-- `src/test/resources/graphs/*.yaml` — test graph definitions
+- `Main.kt` — CLI entry, target filtering (disposed ProjectImpl + released EditorImpl), report header
+- `PathFinderTest.kt` — YAML-based test harness with schema validation (18 tests)
+- `GroupingTest.kt` — tests for path signature grouping (4 tests)
+- `src/test/resources/graphs/*.yaml` — 18 test graph definitions
 - `src/test/resources/test-graph-schema.json` — JSON Schema for test graphs
 - `.claude/plan.md` — design doc with future ideas
 
@@ -14,8 +15,11 @@
 - Reverse index is `Map<Long, LongArray>` (child -> parent IDs), no field names stored
 - Edge resolution (field names, array indices) done from HeapGraph only for final output paths
 - `findPathsForTarget` accepts `Set<Long>` for root IDs (not `GcRoot`) — enables testing without Shark
+- `findPathsForTarget` also accepts `claimedNodes` and `sharedPrefixDepth` params; tests use `sharedPrefixDepth=3` for compact test graphs
+- Test harness mirrors production: maintains `claimedNodes` across targets, claims nodes far from root after each target
 - Test graphs use YAML object definition order to control reverse index parent ordering (important for backtracking/cycle tests)
 - Cache format v3: magic + version + hprof file size + SHA-256 of first 64KB + entries
+- `idsFromTarget` in PathRecord includes the root object as last element — important for claiming calculation (exclude root from step count)
 
 ## Running the tool
 - Always redirect stdout and stderr to separate files, then read them
