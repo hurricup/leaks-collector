@@ -53,6 +53,9 @@ class PathFinderTest {
     fun `two pairs with separate shared paths`() = runGraphTest("two-pairs-shared-paths.yaml")
 
     @Test
+    fun `cascading fallback discovers all unique paths`() = runGraphTest("cascading-fallback.yaml")
+
+    @Test
     fun `cross-target path is dead end`() = runGraphTest("cross-target-dead-end.yaml")
 
     @Test
