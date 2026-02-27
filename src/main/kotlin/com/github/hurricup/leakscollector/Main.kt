@@ -69,17 +69,23 @@ private fun printReportHeader(hprofFile: File, header: HprofHeader, graph: HeapG
 }
 
 fun main(args: Array<String>) {
-    val hprofPath = args.firstOrNull() ?: run {
+    val argList = args.toMutableList()
+    val pretty = argList.remove("--pretty")
+
+    val hprofPath = argList.firstOrNull() ?: run {
         System.err.println("""
             leaks-collector $version — find retention paths to leaked objects in JVM heap dumps
 
-            Usage: leaks-collector <path-to-hprof>
+            Usage: leaks-collector [--pretty] <path-to-hprof>
 
             Analyzes the given .hprof heap dump and prints retention paths from GC roots
             to leaked objects (disposed ProjectImpl, released EditorImpl).
 
             On first run, a reverse index is built and cached as <file>.ri next to the
             heap dump. Subsequent runs load the cache for faster analysis.
+
+            Options:
+              --pretty    Multi-line output with one node per line
 
             Output: one line per retention path to stdout. Logs go to stderr.
         """.trimIndent())
@@ -139,7 +145,7 @@ fun main(args: Array<String>) {
                 } else {
                     println("# $className (${ids.size} instances)")
                 }
-                println(formatPath(group.examplePath))
+                println(formatPath(group.examplePath, pretty))
             }, onDependentTargets = { dep ->
                 if (!first) println()
                 first = false
