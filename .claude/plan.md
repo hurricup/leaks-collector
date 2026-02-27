@@ -19,9 +19,9 @@ Working tool that finds diverse retention paths from GC roots to leaked objects.
 - Reverse index (`Map<Long, LongArray>`) with leaf-type filtering (String, primitives, wrappers, Class, String[], primitive arrays)
 - Per-parent greedy walks with merge/displacement logic and bounded backtracking (10 retries)
 - Cross-target filtering: paths through other targets treated as dead ends
-- Global node claiming: nodes far from root (>= SHARED_PREFIX_DEPTH=8) are claimed after finding paths for a target; future targets treat claimed nodes as dead ends
+- Global node claiming: nodes far from root (>= merge depth) are claimed after finding paths for a target; future targets treat claimed nodes as dead ends
 - Dependent targets: targets with no independent path reported as "held by a path above"
-- Shared prefix depth (8 steps from root) — single unified constant for both per-target merge and global claiming
+- Dynamic per-path merge depth: default 3, Disposer paths get Disposer position + 4. Merge-derived paths inherit parent's merge depth.
 - Binary reverse index cache (gzip-compressed `.ri` file) — loads in ~5s vs ~2.5min build
 - Report header with snapshot metadata (file, size, timestamp, hprof version, pointer size, object counts, GC roots)
 - Path signature deduplication (array indices replaced with `[*]`)
@@ -29,7 +29,7 @@ Working tool that finds diverse retention paths from GC roots to leaked objects.
 - Alive instances logged and skipped
 - Structured logging with timings (kotlin-logging + Logback)
 - Edge resolution from HeapGraph at output time (no field names stored in index)
-- 22 tests (18 path-finding + 4 grouping)
+- 23 tests (19 path-finding + 4 grouping)
 
 ### Algorithm (implemented)
 1. Scan all instances to find target objects (disposed ProjectImpl + released EditorImpl)
@@ -40,18 +40,18 @@ Working tool that finds diverse retention paths from GC roots to leaked objects.
 6. For each remaining direct parent, greedy walk backward toward GC root (first unvisited parent at each step)
 7. On hitting claimed or target node: backtrack (treat as dead end)
 8. On hitting already-known node (per-target merge):
-   - If < SHARED_PREFIX_DEPTH steps from root: create new path (genuine diversity)
-   - If new prefix shorter: displace old path with shorter prefix
+   - If < existing path's merge depth from root: create new path (genuine diversity, inherit merge depth)
+   - If new prefix shorter: displace old path with shorter prefix (inherit merge depth)
    - Otherwise: skip (redundant path)
-9. After finding paths for a target, claim nodes far from root globally
+9. After finding paths for a target, claim nodes far from root (>= path's merge depth) globally
 10. Targets with 0 paths become "dependent" (held by a path above)
 11. Resolve field names and array indices from HeapGraph only for final output paths
 12. Deduplicate by path signature, group targets, sort by group size descending
 
 ## Future Ideas
 
-### 1. Dynamic merge threshold (anchor-based)
-Fixed `SHARED_PREFIX_DEPTH=8` doesn't work for all cases — see `.claude/notes.md` for details. Needs an anchor-based approach where known infrastructure classes shift the merge boundary dynamically.
+### 1. Additional merge depth anchors
+Disposer anchor is implemented. More anchors can be added to `computeMergeDepth` for other infrastructure classes. See `.claude/notes.md` for the `myRootNode` variant caveat.
 
 ### 2. User-friendly CLI workflow
 Provide interactive CLI that:
