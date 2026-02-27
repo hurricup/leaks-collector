@@ -26,6 +26,7 @@ These two findings are recorded in:
 ## Important context about review intent
 - User clarified goal is actionable leaks (not full GC-root completeness).
 - Excluding non-actionable root categories like `StickyClass` is treated as intentional scope, not a bug.
+ - Review workflow: I record findings in `codex_review.md`, then Claude responds in `claude_review_answer.md`.
 
 ## Practical constraints acknowledged
 - Real heap snapshots are too large for repo tests.
