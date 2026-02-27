@@ -21,6 +21,13 @@
 - Cache format v3: magic + version + hprof file size + SHA-256 of first 64KB + entries
 - `idsFromTarget` in PathRecord includes the root object as last element — important for claiming calculation (exclude root from step count)
 
+## Review flow
+- Codex writes reviews in `codex_review.md`
+- Claude answers in `claude_review_answer.md`
+
+## Conventions
+- "Store" / "save" means save to repo files (e.g. `.claude/notes.md`), NOT machine-local memory
+
 ## Running the tool
 - Always redirect stdout and stderr to separate files, then read them
 - Test snapshots live in `tmp/` (gitignored)

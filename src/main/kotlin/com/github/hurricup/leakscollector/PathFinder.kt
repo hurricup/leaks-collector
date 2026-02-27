@@ -45,18 +45,19 @@ private val LEAF_ARRAY_CLASSES = setOf(
 )
 
 private const val MAX_PATHS_PER_TARGET = 100
-/** Nodes within this many steps from root are considered shared infrastructure — not merged or claimed. */
-private const val SHARED_PREFIX_DEPTH = 8
+/** Default merge depth: nodes within this many steps from root are considered shared infrastructure. */
+private const val DEFAULT_MERGE_DEPTH = 3
+private const val DISPOSER_CLASS = "com.intellij.openapi.util.Disposer"
 
 /**
  * A recorded path as a list of object IDs from target toward root.
  * idsFromTarget[0] is the direct parent of the target,
- * idsFromTarget[last] is the child of the GC root object.
- * rootObjectId is the GC root object itself.
+ * idsFromTarget[last] is the GC root object (same as rootObjectId).
  */
 internal class PathRecord(
     val idsFromTarget: List<Long>,
     val rootObjectId: Long,
+    val mergeDepth: Int,
 )
 
 /**
@@ -144,13 +145,14 @@ fun findPaths(
     val claimedNodes = HashSet<Long>()
     val allEntries = ArrayList<Triple<Long, String, List<PathStep>>>()
     val dependentTargetIds = ArrayList<Pair<Long, String>>() // targetId to className
+    val classNameResolver: (Long) -> String? = { id -> classNameOf(graph.findObjectById(id)) }
 
     for (targetId in targetIds) {
         val targetObj = graph.findObjectById(targetId)
         val targetClassName = classNameOf(targetObj)
         val directParents = reverseIndex[targetId]?.size ?: 0
         logger.info { "Target: $targetClassName@$targetId, direct parents: $directParents" }
-        val paths = findPathsForTarget(targetId, reverseIndex, gcRootIds.keys, targetIdSet, claimedNodes)
+        val paths = findPathsForTarget(targetId, reverseIndex, gcRootIds.keys, targetIdSet, claimedNodes, classNameOf = classNameResolver)
         logger.info { "  Found ${paths.size} raw paths" }
 
         if (paths.isEmpty()) {
@@ -163,7 +165,7 @@ fun findPaths(
         for (record in paths) {
             val ids = record.idsFromTarget
             val stepsExcludingRoot = ids.size - 1
-            val farFromRootCount = maxOf(0, stepsExcludingRoot - SHARED_PREFIX_DEPTH + 1)
+            val farFromRootCount = maxOf(0, stepsExcludingRoot - record.mergeDepth + 1)
             for (i in 0 until farFromRootCount) {
                 claimedNodes.add(ids[i])
             }
@@ -201,6 +203,26 @@ fun findPaths(
 }
 
 /**
+ * Computes the merge depth for a newly found path.
+ * Searches for known infrastructure anchors (e.g., Disposer) and adjusts the merge boundary accordingly.
+ */
+private fun computeMergeDepth(
+    idsFromTarget: List<Long>,
+    defaultMergeDepth: Int,
+    classNameOf: ((Long) -> String?)?,
+): Int {
+    if (classNameOf == null) return defaultMergeDepth
+    for ((idx, id) in idsFromTarget.withIndex()) {
+        val className = classNameOf(id) ?: continue
+        if (className == DISPOSER_CLASS) {
+            val stepsFromRoot = (idsFromTarget.size - 1) - idx
+            return stepsFromRoot + 4
+        }
+    }
+    return defaultMergeDepth
+}
+
+/**
  * For a single target, walks backward from each direct parent to find diverse paths to GC roots.
  */
 internal fun findPathsForTarget(
@@ -209,10 +231,11 @@ internal fun findPathsForTarget(
     rootObjectIds: Set<Long>,
     allTargetIds: Set<Long> = emptySet(),
     claimedNodes: Set<Long> = emptySet(),
-    sharedPrefixDepth: Int = SHARED_PREFIX_DEPTH,
+    defaultMergeDepth: Int = DEFAULT_MERGE_DEPTH,
+    classNameOf: ((Long) -> String?)? = null,
 ): List<PathRecord> {
     if (targetId in rootObjectIds) {
-        return listOf(PathRecord(emptyList(), targetId))
+        return listOf(PathRecord(emptyList(), targetId, defaultMergeDepth))
     }
 
     val directParents = reverseIndex[targetId] ?: return emptyList()
@@ -231,7 +254,8 @@ internal fun findPathsForTarget(
         when (walkResult) {
             is WalkResult.FoundRoot -> {
                 val pathIndex = paths.size
-                val record = PathRecord(walkResult.idsFromTarget, walkResult.rootObjectId)
+                val mergeDepth = computeMergeDepth(walkResult.idsFromTarget, defaultMergeDepth, classNameOf)
+                val record = PathRecord(walkResult.idsFromTarget, walkResult.rootObjectId, mergeDepth)
                 paths.add(record)
                 for ((i, nodeId) in record.idsFromTarget.withIndex()) {
                     nodeOwner[nodeId] = pathIndex to (i + 1)
@@ -247,13 +271,13 @@ internal fun findPathsForTarget(
 
                 val existingStepsFromRoot = existingRecord.idsFromTarget.size - existingStepsFromTarget
 
-                if (existingStepsFromRoot < sharedPrefixDepth) {
+                if (existingStepsFromRoot < existingRecord.mergeDepth) {
                     // Shared node is near root — genuine diversity, create new path
                     val oldSuffix = existingRecord.idsFromTarget.subList(
                         existingStepsFromTarget, existingRecord.idsFromTarget.size
                     )
                     val pathIndex = paths.size
-                    paths.add(PathRecord(newPrefix + oldSuffix, existingRecord.rootObjectId))
+                    paths.add(PathRecord(newPrefix + oldSuffix, existingRecord.rootObjectId, existingRecord.mergeDepth))
                     for ((i, nodeId) in newPrefix.withIndex()) {
                         nodeOwner[nodeId] = pathIndex to (i + 1)
                     }
@@ -263,7 +287,7 @@ internal fun findPathsForTarget(
                         existingStepsFromTarget, existingRecord.idsFromTarget.size
                     )
                     val newIds = newPrefix + oldSuffix
-                    val newRecord = PathRecord(newIds, existingRecord.rootObjectId)
+                    val newRecord = PathRecord(newIds, existingRecord.rootObjectId, existingRecord.mergeDepth)
 
                     // Remove old prefix nodes from nodeOwner
                     for (i in 0 until existingStepsFromTarget) {

@@ -1,0 +1,55 @@
+description: >
+  Disposer anchor extends merge depth beyond default.
+  Two paths diverge at shared_arr (step 5 from root).
+  Default merge depth 3 would merge them (5 >= 3).
+  Disposer at step 2 gives merge depth 6, keeping them separate (5 < 6).
+roots:
+  - type: JniGlobal
+    objects: [root]
+objects:
+  root:
+    class: Root
+    fields:
+      ref: a1
+  a1:
+    class: A
+    fields:
+      ref: disposer
+  disposer:
+    class: com.intellij.openapi.util.Disposer
+    fields:
+      ourTree: ot
+  ot:
+    class: ObjectTree
+    fields:
+      map: hm
+  hm:
+    class: HashMap
+    fields:
+      key: shared_arr
+  shared_arr:
+    class: "Object[]"
+    elements: [b1, c1]
+  b1:
+    class: B
+    fields:
+      ref: b2
+  b2:
+    class: B
+    fields:
+      ref: target
+  c1:
+    class: C
+    fields:
+      ref: c2
+  c2:
+    class: C
+    fields:
+      ref: target
+  target:
+    class: Target
+targets: [target]
+target_class: Target
+expected_paths:
+  - "Root[JniGlobal] -> Root.ref -> A.ref -> com.intellij.openapi.util.Disposer.ourTree -> ObjectTree.map -> HashMap.key -> Object[][0] -> B.ref -> B.ref -> Target"
+  - "Root[JniGlobal] -> Root.ref -> A.ref -> com.intellij.openapi.util.Disposer.ourTree -> ObjectTree.map -> HashMap.key -> Object[][1] -> C.ref -> C.ref -> Target"

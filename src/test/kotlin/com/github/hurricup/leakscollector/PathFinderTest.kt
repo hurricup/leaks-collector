@@ -59,6 +59,9 @@ class PathFinderTest {
     fun `cascading fallback with dependent target`() = runGraphTest("cascading-with-dependent.yaml")
 
     @Test
+    fun `disposer anchor extends merge depth beyond default`() = runGraphTest("disposer-merge-depth.yaml")
+
+    @Test
     fun `cross-target path is dead end`() = runGraphTest("cross-target-dead-end.yaml")
 
     @Test
@@ -77,7 +80,9 @@ class PathFinderTest {
 
         val targetIds = testGraph.targets.map { objectIds.getValue(it) }
 
-        val sharedPrefixDepth = 3
+        val defaultMergeDepth = 3
+        val idToName = objectIds.entries.associate { (k, v) -> v to k }
+        val classNameOf: (Long) -> String? = { id -> objectDefs[idToName[id]]?.`class` }
         val allTargetIds = targetIds.toHashSet()
         val claimedNodes = HashSet<Long>()
         val allPaths = mutableListOf<String>()
@@ -88,7 +93,7 @@ class PathFinderTest {
                 ?: testGraph.target_class
                 ?: error("No class for target $targetName: define it in objects or set target_class")
 
-            val records = findPathsForTarget(targetId, reverseIndex, rootObjectIds, allTargetIds, claimedNodes, sharedPrefixDepth)
+            val records = findPathsForTarget(targetId, reverseIndex, rootObjectIds, allTargetIds, claimedNodes, defaultMergeDepth, classNameOf)
 
             if (records.isEmpty()) {
                 dependentTargets.add(targetClass)
@@ -98,7 +103,7 @@ class PathFinderTest {
             for (record in records) {
                 val ids = record.idsFromTarget
                 val stepsExcludingRoot = ids.size - 1
-                val farFromRootCount = maxOf(0, stepsExcludingRoot - sharedPrefixDepth + 1)
+                val farFromRootCount = maxOf(0, stepsExcludingRoot - record.mergeDepth + 1)
                 for (i in 0 until farFromRootCount) {
                     claimedNodes.add(ids[i])
                 }
