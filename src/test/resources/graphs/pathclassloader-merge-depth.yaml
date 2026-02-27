@@ -1,0 +1,47 @@
+description: >
+  PathClassLoader anchor extends merge depth beyond default.
+  Two paths diverge at arr (step 3 from root).
+  Default merge depth 3 would merge them (3 >= 3).
+  PathClassLoader at step 1 gives merge depth 4, keeping them separate (3 < 4).
+roots:
+  - type: JniGlobal
+    objects: [root]
+objects:
+  root:
+    class: Root
+    fields:
+      ref: pcl
+  pcl:
+    class: com.intellij.util.lang.PathClassLoader
+    fields:
+      classes: al
+  al:
+    class: ArrayList
+    fields:
+      elementData: arr
+  arr:
+    class: "Object[]"
+    elements: [b1, c1]
+  b1:
+    class: B
+    fields:
+      ref: b2
+  b2:
+    class: B
+    fields:
+      ref: target
+  c1:
+    class: C
+    fields:
+      ref: c2
+  c2:
+    class: C
+    fields:
+      ref: target
+  target:
+    class: Target
+targets: [target]
+target_class: Target
+expected_paths:
+  - "Root[JniGlobal] -> Root.ref -> com.intellij.util.lang.PathClassLoader.classes -> ArrayList.elementData -> Object[][0] -> B.ref -> B.ref -> Target"
+  - "Root[JniGlobal] -> Root.ref -> com.intellij.util.lang.PathClassLoader.classes -> ArrayList.elementData -> Object[][1] -> C.ref -> C.ref -> Target"

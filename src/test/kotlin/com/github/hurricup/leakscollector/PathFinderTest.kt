@@ -62,6 +62,12 @@ class PathFinderTest {
     fun `disposer anchor extends merge depth beyond default`() = runGraphTest("disposer-merge-depth.yaml")
 
     @Test
+    fun `pathclassloader anchor extends merge depth beyond default`() = runGraphTest("pathclassloader-merge-depth.yaml")
+
+    @Test
+    fun `disposer merge depth overrides pathclassloader`() = runGraphTest("disposer-overrides-pathclassloader.yaml")
+
+    @Test
     fun `cross-target path is dead end`() = runGraphTest("cross-target-dead-end.yaml")
 
     @Test

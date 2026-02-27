@@ -48,6 +48,7 @@ private const val MAX_PATHS_PER_TARGET = 100
 /** Default merge depth: nodes within this many steps from root are considered shared infrastructure. */
 private const val DEFAULT_MERGE_DEPTH = 3
 private const val DISPOSER_CLASS = "com.intellij.openapi.util.Disposer"
+private const val PATHCLASSLOADER_CLASS = "com.intellij.util.lang.PathClassLoader"
 
 /**
  * A recorded path as a list of object IDs from target toward root.
@@ -212,14 +213,18 @@ private fun computeMergeDepth(
     classNameOf: ((Long) -> String?)?,
 ): Int {
     if (classNameOf == null) return defaultMergeDepth
+    var depth = defaultMergeDepth
     for ((idx, id) in idsFromTarget.withIndex()) {
         val className = classNameOf(id) ?: continue
-        if (className == DISPOSER_CLASS) {
-            val stepsFromRoot = (idsFromTarget.size - 1) - idx
-            return stepsFromRoot + 4
+        val stepsFromRoot = (idsFromTarget.size - 1) - idx
+        val candidate = when (className) {
+            DISPOSER_CLASS -> stepsFromRoot + 4
+            PATHCLASSLOADER_CLASS -> stepsFromRoot + 3
+            else -> continue
         }
+        if (candidate > depth) depth = candidate
     }
-    return defaultMergeDepth
+    return depth
 }
 
 /**
