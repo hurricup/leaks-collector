@@ -60,7 +60,10 @@ Provide interactive CLI that:
 - Runs `jmap` to capture heap dump
 - Analyzes the snapshot automatically
 
-### 3. MCP server for snapshot navigation
+### 3. IDE information in report header
+Extract IDE metadata from the heap snapshot and include it in the report header: application name, version, Xmx settings, installed plugins list.
+
+### 4. MCP server for snapshot navigation
 Separate tool that loads a heap snapshot and exposes MCP tools for navigating, searching, and inspecting the object graph interactively. This feels like a separate project rather than an extension of leaks-collector.
 
 ## Completed commits
