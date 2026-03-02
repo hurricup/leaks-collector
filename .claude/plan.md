@@ -50,20 +50,26 @@ Working tool that finds diverse retention paths from GC roots to leaked objects.
 
 ## Future Ideas
 
-### 1. Additional merge depth anchors
+### 1. Deprioritize trivial root paths
+Paths of length 1 (Root → Target directly) are technically correct but uninformative — they just say "it's on the stack" without showing what code holds the reference. These should be deprioritized: shown last or suppressed when more informative paths exist for the same or other targets.
+
+### 2. Thread information in paths
+When a path originates from a thread-related GC root (JavaFrame, JNI global), include thread name/id in the path output. YourKit shows this (e.g., `"ApplicationImpl pooled thread 2" tid=185`) and it helps identify which thread holds the reference.
+
+### 3. Additional merge depth anchors
 Disposer anchor is implemented. More anchors can be added to `computeMergeDepth` for other infrastructure classes. See `.claude/notes.md` for the `myRootNode` variant caveat.
 
-### 2. User-friendly CLI workflow
+### 4. User-friendly CLI workflow
 Provide interactive CLI that:
 - Runs a command to find IDE processes (or shows all JVM processes)
 - Lets user pick a process
 - Runs `jmap` to capture heap dump
 - Analyzes the snapshot automatically
 
-### 3. IDE information in report header
+### 5. IDE information in report header
 Extract IDE metadata from the heap snapshot and include it in the report header: application name, version, Xmx settings, installed plugins list.
 
-### 4. MCP server for snapshot navigation
+### 6. MCP server for snapshot navigation
 Separate tool that loads a heap snapshot and exposes MCP tools for navigating, searching, and inspecting the object graph interactively. This feels like a separate project rather than an extension of leaks-collector.
 
 ## Completed commits
