@@ -56,20 +56,23 @@ Paths of length 1 (Root → Target directly) are technically correct but uninfor
 ### 2. Thread information in paths
 When a path originates from a thread-related GC root (JavaFrame, JNI global), include thread name/id in the path output. YourKit shows this (e.g., `"ApplicationImpl pooled thread 2" tid=185`) and it helps identify which thread holds the reference.
 
-### 3. Additional merge depth anchors
+### 3. Disposer hierarchy annotation in paths
+When a path goes through Disposer's `ObjectTree.myObject2ParentNode`, the map has parallel `key` (Disposable child) and `value` (ObjectNode wrapping the parent) arrays — same-index entries are linked. When we traverse through one side (e.g., `key[619]`), annotate the path with the corresponding disposal pair from the other side. This would show the actual disposal parent-child relationship in the output, making Disposer paths much more informative (e.g., which Disposable is the parent of the leaked object in the disposal hierarchy).
+
+### 4. Additional merge depth anchors
 Disposer anchor is implemented. More anchors can be added to `computeMergeDepth` for other infrastructure classes. See `.claude/notes.md` for the `myRootNode` variant caveat.
 
-### 4. User-friendly CLI workflow
+### 5. User-friendly CLI workflow
 Provide interactive CLI that:
 - Runs a command to find IDE processes (or shows all JVM processes)
 - Lets user pick a process
 - Runs `jmap` to capture heap dump
 - Analyzes the snapshot automatically
 
-### 5. IDE information in report header
+### 6. IDE information in report header
 Extract IDE metadata from the heap snapshot and include it in the report header: application name, version, Xmx settings, installed plugins list.
 
-### 6. MCP server for snapshot navigation
+### 7. MCP server for snapshot navigation
 Separate tool that loads a heap snapshot and exposes MCP tools for navigating, searching, and inspecting the object graph interactively. This feels like a separate project rather than an extension of leaks-collector.
 
 ## Completed commits
