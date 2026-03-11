@@ -20,7 +20,7 @@ CLI tool that analyzes JVM heap dumps (`.hprof` files) and finds retention paths
 Output starts with a metadata header, followed by targets sharing the same retention path grouped together and sorted by group size (largest first). Targets with no independent path are reported as dependent:
 
 ```
-# leaks-collector 2026.2
+# leaks-collector 2026.3
 # File: /path/to/heap.hprof
 # Size: 1686.5 MB
 # Heap dump timestamp: 2026-02-25 17:19:25 AMT

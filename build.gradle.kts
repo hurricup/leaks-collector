@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "com.github.hurricup"
-version = "2026.2"
+version = "2026.3"
 
 repositories {
     mavenCentral()

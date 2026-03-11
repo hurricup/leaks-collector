@@ -8,7 +8,7 @@ CLI tool that reads JVM heap dumps (hprof) and finds all hard-referenced paths f
 
 Report header with snapshot metadata, then grouped paths sorted by group size (largest first). Targets with no independent path are reported as dependent ("held by a path above"):
 ```
-# leaks-collector 2026.2
+# leaks-collector 2026.3
 # File: /path/to/dump.hprof
 # Size: 1686.5 MB
 # ...
