@@ -10,7 +10,10 @@ fun formatPath(path: List<PathStep>, pretty: Boolean = false): String {
     val separator = if (pretty) " ->\n\t" else " -> "
     return path.joinToString(separator) { step ->
         when (step) {
-            is PathStep.Root -> "Root[${gcRootTypeName(step.gcRoot)}, ${step.heapObject.objectId}]"
+            is PathStep.Root -> {
+                val threadPart = step.threadName?.let { ", \"$it\"" } ?: ""
+                "Root[${gcRootTypeName(step.gcRoot)}, ${step.heapObject.objectId}$threadPart]"
+            }
             is PathStep.FieldReference -> "${step.ownerClassName}.${step.fieldName}"
             is PathStep.ArrayReference -> "${step.arrayClassName}[${step.index}]"
             is PathStep.Target -> "${step.className}@${step.objectId}"

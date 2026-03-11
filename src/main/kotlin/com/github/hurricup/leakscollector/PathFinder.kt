@@ -14,7 +14,7 @@ private val logger = KotlinLogging.logger {}
  * A step in a reference path from a GC root to a target object.
  */
 sealed class PathStep {
-    data class Root(val gcRoot: GcRoot, val heapObject: HeapObject) : PathStep()
+    data class Root(val gcRoot: GcRoot, val heapObject: HeapObject, val threadName: String? = null) : PathStep()
     data class FieldReference(val ownerClassName: String, val fieldName: String) : PathStep()
     data class ArrayReference(val arrayClassName: String, val index: Int) : PathStep()
     data class Target(val className: String, val objectId: Long) : PathStep()
@@ -140,6 +140,8 @@ fun findPaths(
         .filter { isStrongRoot(it) && graph.objectExists(it.id) }
         .groupBy { it.id }
 
+    val threadNames = buildThreadNameMap(graph)
+
     logger.info { "Finding paths..." }
 
     val targetIdSet = targetIds.toHashSet()
@@ -174,7 +176,7 @@ fun findPaths(
 
         val seenSignatures = HashSet<String>()
         for (record in paths) {
-            val fullPath = buildPathSteps(graph, record, targetClassName, targetId, gcRootIds)
+            val fullPath = buildPathSteps(graph, record, targetClassName, targetId, gcRootIds, threadNames)
                 ?: continue
             val signature = pathSignature(fullPath)
             if (signature !in seenSignatures) {
@@ -409,11 +411,13 @@ private fun buildPathSteps(
     targetClassName: String,
     targetId: Long,
     gcRootIds: Map<Long, List<GcRoot>>,
+    threadNames: Map<Int, String>,
 ): List<PathStep>? {
     val root = gcRootIds[record.rootObjectId]?.firstOrNull() ?: return null
     val rootObj = graph.findObjectById(record.rootObjectId)
+    val threadName = gcRootThreadSerial(root)?.let { threadNames[it] }
     val steps = ArrayList<PathStep>(record.idsFromTarget.size + 2)
-    steps.add(PathStep.Root(root, rootObj))
+    steps.add(PathStep.Root(root, rootObj, threadName))
 
     // Build the full ID sequence: root, ids (reversed), target
     val ids = ArrayList<Long>(record.idsFromTarget.size + 2)
@@ -593,6 +597,39 @@ private fun isStrongRoot(root: GcRoot): Boolean = when (root) {
 }
 
 fun gcRootTypeName(root: GcRoot): String = root::class.simpleName ?: "Unknown"
+
+/**
+ * Extracts threadSerialNumber from GC root types that carry one, or null otherwise.
+ */
+private fun gcRootThreadSerial(root: GcRoot): Int? = when (root) {
+    is GcRoot.JavaFrame -> root.threadSerialNumber
+    is GcRoot.JniLocal -> root.threadSerialNumber
+    is GcRoot.NativeStack -> root.threadSerialNumber
+    is GcRoot.ThreadBlock -> root.threadSerialNumber
+    is GcRoot.ThreadObject -> root.threadSerialNumber
+    else -> null
+}
+
+/**
+ * Builds a map from threadSerialNumber to thread name by finding ThreadObject GC roots
+ * and reading the name field from the corresponding java.lang.Thread heap objects.
+ */
+private fun buildThreadNameMap(graph: HeapGraph): Map<Int, String> {
+    val map = HashMap<Int, String>()
+    for (root in graph.gcRoots) {
+        if (root is GcRoot.ThreadObject && graph.objectExists(root.id)) {
+            val obj = graph.findObjectById(root.id)
+            if (obj is HeapInstance) {
+                val name = obj.readField("java.lang.Thread", "name")
+                    ?.value?.readAsJavaString()
+                if (name != null) {
+                    map[root.threadSerialNumber] = name
+                }
+            }
+        }
+    }
+    return map
+}
 
 private fun classNameOf(obj: HeapObject): String = when (obj) {
     is HeapInstance -> obj.instanceClassName
