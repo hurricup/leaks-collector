@@ -26,8 +26,5 @@ Read these files first for project background:
 - Most walks merge/skip because the graph is so interconnected — that's why results are usually ~1 path per target despite trying all parents
 
 ### Tests
-- 30 total: 19 path-finding + 4 grouping + 5 formatting + 2 schema validation
+- Path-finding, grouping, formatting, and schema validation tests in `src/test/`
 
-### Repo state
-- Branch: main, clean
-- Latest commit: 99ccd39 "Add IDE info extraction to plan"

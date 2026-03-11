@@ -29,7 +29,8 @@ Working tool that finds diverse retention paths from GC roots to leaked objects.
 - Alive instances logged and skipped
 - Structured logging with timings (kotlin-logging + Logback)
 - Edge resolution from HeapGraph at output time (no field names stored in index)
-- 23 tests (19 path-finding + 4 grouping)
+- Thread name resolution for thread-aware GC roots (JavaFrame, JniLocal, NativeStack, ThreadBlock) via ThreadObject → java.lang.Thread.name
+- YAML-based test suite covering path-finding, grouping, formatting, and schema validation
 
 ### Algorithm (implemented)
 1. Scan all instances to find target objects (disposed ProjectImpl + released EditorImpl)
@@ -53,26 +54,23 @@ Working tool that finds diverse retention paths from GC roots to leaked objects.
 ### 1. Deprioritize trivial root paths
 Paths of length 1 (Root → Target directly) are technically correct but uninformative — they just say "it's on the stack" without showing what code holds the reference. These should be deprioritized: shown last or suppressed when more informative paths exist for the same or other targets.
 
-### 2. Thread information in paths
-When a path originates from a thread-related GC root (JavaFrame, JNI global), include thread name/id in the path output. YourKit shows this (e.g., `"ApplicationImpl pooled thread 2" tid=185`) and it helps identify which thread holds the reference.
-
-### 3. Disposer hierarchy annotation in paths
+### 2. Disposer hierarchy annotation in paths
 When a path goes through Disposer's `ObjectTree.myObject2ParentNode`, the map has parallel `key` (Disposable child) and `value` (ObjectNode wrapping the parent) arrays — same-index entries are linked. When we traverse through one side (e.g., `key[619]`), annotate the path with the corresponding disposal pair from the other side. This would show the actual disposal parent-child relationship in the output, making Disposer paths much more informative (e.g., which Disposable is the parent of the leaked object in the disposal hierarchy).
 
-### 4. Additional merge depth anchors
+### 3. Additional merge depth anchors
 Disposer anchor is implemented. More anchors can be added to `computeMergeDepth` for other infrastructure classes. See `.claude/notes.md` for the `myRootNode` variant caveat.
 
-### 5. User-friendly CLI workflow
+### 4. User-friendly CLI workflow
 Provide interactive CLI that:
 - Runs a command to find IDE processes (or shows all JVM processes)
 - Lets user pick a process
 - Runs `jmap` to capture heap dump
 - Analyzes the snapshot automatically
 
-### 6. IDE information in report header
+### 5. IDE information in report header
 Extract IDE metadata from the heap snapshot and include it in the report header: application name, version, Xmx settings, installed plugins list.
 
-### 7. MCP server for snapshot navigation
+### 6. MCP server for snapshot navigation
 Separate tool that loads a heap snapshot and exposes MCP tools for navigating, searching, and inspecting the object graph interactively. This feels like a separate project rather than an extension of leaks-collector.
 
 ## Completed commits
@@ -92,3 +90,4 @@ Separate tool that loads a heap snapshot and exposes MCP tools for navigating, s
 14. Redesign path finding: per-parent greedy walks with merge
 15. Add binary reverse index cache
 16. Filter targets to only disposed ProjectImpl instances
+17. Add thread name to GC root display in path output
