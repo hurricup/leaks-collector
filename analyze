@@ -1,0 +1,16 @@
+#!/bin/bash
+set -euo pipefail
+
+if [ $# -eq 0 ]; then
+    echo "Usage: ./analyze path/to/dump.hprof"
+    exit 1
+fi
+
+FILE="$1"
+if [ ! -f "$FILE" ]; then
+    echo "File not found: $FILE"
+    exit 1
+fi
+
+./gradlew run -q --args="--pretty $FILE" > "$FILE.out.txt" 2> "$FILE.err.txt"
+echo "Done. Output: $FILE.out.txt, Logs: $FILE.err.txt"
