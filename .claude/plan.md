@@ -67,8 +67,8 @@ Provide interactive CLI that:
 - Runs `jmap` to capture heap dump
 - Analyzes the snapshot automatically
 
-### 5. IDE information in report header
-Extract IDE metadata from the heap snapshot and include it in the report header: application name, version, Xmx settings, installed plugins list.
+### 5. Submit reports to JetBrains exception analyzer
+Represent each leak chain as a synthetic stacktrace and submit it to JetBrains exception analyzer (ea.jetbrains.com). This would allow leak reports to be tracked alongside regular exception reports. For implementation details, study how IntelliJ IDEA's built-in error reporting mechanism formats and submits reports.
 
 ### 6. MCP server for snapshot navigation
 Separate tool that loads a heap snapshot and exposes MCP tools for navigating, searching, and inspecting the object graph interactively. This feels like a separate project rather than an extension of leaks-collector.
