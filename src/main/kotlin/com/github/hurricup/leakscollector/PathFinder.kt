@@ -515,9 +515,10 @@ private fun buildReverseIndex(graph: HeapGraph): Map<Long, LongArray> {
         when (obj) {
             is HeapInstance -> {
                 if (obj.instanceClassName in LEAF_INSTANCE_CLASSES) continue
-                if (isWeakReferenceType(obj)) continue
+                val isWeak = isWeakReferenceType(obj)
                 obj.readFields().forEach { field ->
                     if (field.name.startsWith('<')) return@forEach
+                    if (isWeak && field.name == "referent") return@forEach
                     val childId = field.value.asNonNullObjectId ?: return@forEach
                     if (skipChildIds.binarySearch(childId) >= 0) return@forEach
                     if (!graph.objectExists(childId)) return@forEach
