@@ -1,0 +1,60 @@
+#!/bin/bash
+set -euo pipefail
+
+DATE=$(date +%d%m)
+TMP="tmp"
+LOG_DIR="$HOME/.cache/JetBrains/IntelliJIdea2026.2/log"
+
+# 1. Resolve PID
+if [ $# -ge 1 ]; then
+    PID="$1"
+else
+    IDEA_PIDS=$(jps -l | grep -i "com.intellij.idea.Main" | awk '{print $1}')
+    IDEA_COUNT=$(echo "$IDEA_PIDS" | grep -c . || true)
+
+    if [ "$IDEA_COUNT" -eq 0 ]; then
+        echo "No IDEA process found. Available Java processes:"
+        jps -l
+        exit 1
+    elif [ "$IDEA_COUNT" -gt 1 ]; then
+        echo "Multiple IDEA processes found, specify PID: ./capture <pid>"
+        jps -l | grep -i "com.intellij.idea.Main"
+        exit 1
+    fi
+    PID="$IDEA_PIDS"
+fi
+echo "Using IDEA process: PID $PID"
+
+# 2. Compress IDE logs
+if [ -d "$LOG_DIR" ]; then
+    echo "Compressing IDE logs..."
+    (cd "$LOG_DIR" && zip -r -q -) > "$TMP/logs_$DATE.zip"
+    echo "Logs saved to $TMP/logs_$DATE.zip"
+else
+    echo "Log directory not found: $LOG_DIR"
+fi
+
+# 3. jstack
+echo "Taking thread dump..."
+jstack -l -e "$PID" > "$TMP/jstack_$DATE.txt"
+echo "Thread dump saved to $TMP/jstack_$DATE.txt"
+
+# 4. Invoke GC several times
+echo "Invoking GC..."
+for i in 1 2 3; do
+    jcmd "$PID" GC.run
+    echo "  GC invocation $i done, waiting 3s..."
+    sleep 3
+done
+
+# 5. Heap dump
+HPROF="$TMP/closedprojects_$DATE.hprof"
+echo "Capturing heap dump (this may take a while)..."
+jmap -dump:format=b,file="$HPROF" "$PID"
+echo "Heap dump saved to $HPROF"
+
+echo ""
+echo "All done. Files in $TMP/:"
+echo "  logs_$DATE.zip"
+echo "  jstack_$DATE.txt"
+echo "  closedprojects_$DATE.hprof"
