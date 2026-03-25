@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-DATE=$(date +%d%m)
+STAMP=$(date +%d%m_%H%M)
 TMP="tmp"
 LOG_DIR="$HOME/.cache/JetBrains/IntelliJIdea2026.2/log"
 
@@ -28,16 +28,16 @@ echo "Using IDEA process: PID $PID"
 # 2. Compress IDE logs
 if [ -d "$LOG_DIR" ]; then
     echo "Compressing IDE logs..."
-    (cd "$LOG_DIR" && zip -r -q -) > "$TMP/logs_$DATE.zip"
-    echo "Logs saved to $TMP/logs_$DATE.zip"
+    (cd "$LOG_DIR" && zip -r -q -) > "$TMP/logs_$STAMP.zip"
+    echo "Logs saved to $TMP/logs_$STAMP.zip"
 else
     echo "Log directory not found: $LOG_DIR"
 fi
 
 # 3. jstack
 echo "Taking thread dump..."
-jstack -l -e "$PID" > "$TMP/jstack_$DATE.txt"
-echo "Thread dump saved to $TMP/jstack_$DATE.txt"
+jstack -l -e "$PID" > "$TMP/jstack_$STAMP.txt"
+echo "Thread dump saved to $TMP/jstack_$STAMP.txt"
 
 # 4. Invoke GC several times
 echo "Invoking GC..."
@@ -48,13 +48,13 @@ for i in 1 2 3; do
 done
 
 # 5. Heap dump
-HPROF="$TMP/closedprojects_$DATE.hprof"
+HPROF="$TMP/closedprojects_$STAMP.hprof"
 echo "Capturing heap dump (this may take a while)..."
 jmap -dump:format=b,file="$HPROF" "$PID"
 echo "Heap dump saved to $HPROF"
 
 echo ""
 echo "All done. Files in $TMP/:"
-echo "  logs_$DATE.zip"
-echo "  jstack_$DATE.txt"
-echo "  closedprojects_$DATE.hprof"
+echo "  logs_$STAMP.zip"
+echo "  jstack_$STAMP.txt"
+echo "  closedprojects_$STAMP.hprof"
