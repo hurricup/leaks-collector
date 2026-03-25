@@ -28,7 +28,8 @@ echo "Using IDEA process: PID $PID"
 # 2. Compress IDE logs
 if [ -d "$LOG_DIR" ]; then
     echo "Compressing IDE logs..."
-    (cd "$LOG_DIR" && zip -r -q -) > "$TMP/logs_$STAMP.zip"
+    LOGS_ZIP="$(pwd)/$TMP/logs_$STAMP.zip"
+    (cd "$LOG_DIR" && zip -r -q "$LOGS_ZIP" .)
     echo "Logs saved to $TMP/logs_$STAMP.zip"
 else
     echo "Log directory not found: $LOG_DIR"
