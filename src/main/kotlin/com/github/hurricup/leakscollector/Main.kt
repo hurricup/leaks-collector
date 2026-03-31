@@ -363,6 +363,14 @@ fun main(args: Array<String>) {
                 } else {
                     println("# ${dep.className} (${dep.targetIds.size} instances) — held by a path above")
                 }
+            }, onUnreachableTargets = { dep ->
+                if (!first) println()
+                first = false
+                if (dep.targetIds.size == 1) {
+                    println("# ${dep.className}@${dep.targetIds[0]} — not strongly reachable (GC-eligible)")
+                } else {
+                    println("# ${dep.className} (${dep.targetIds.size} instances) — not strongly reachable (GC-eligible)")
+                }
             })
         }
     }.also { logger.info { "Total time: $it" } }

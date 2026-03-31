@@ -110,6 +110,7 @@ fun findPaths(
     predicate: (HeapObjectContext) -> Boolean,
     onGroup: (PathGroup<List<PathStep>>) -> Unit,
     onDependentTargets: (DependentTargets) -> Unit = {},
+    onUnreachableTargets: (DependentTargets) -> Unit = {},
 ) {
     logger.info { "Scanning for target objects..." }
     var targetIds: List<Long> = emptyList()
@@ -147,7 +148,8 @@ fun findPaths(
     val targetIdSet = targetIds.toHashSet()
     val claimedNodes = HashSet<Long>()
     val allEntries = ArrayList<Triple<Long, String, List<PathStep>>>()
-    val dependentTargetIds = ArrayList<Pair<Long, String>>() // targetId to className
+    val dependentTargetIds = ArrayList<Pair<Long, String>>() // targetId to className — has parents but no independent path
+    val unreachableTargetIds = ArrayList<Pair<Long, String>>() // targetId to className — 0 direct parents
     val classNameResolver: (Long) -> String? = { id -> classNameOf(graph.findObjectById(id)) }
 
     for (targetId in targetIds) {
@@ -159,7 +161,12 @@ fun findPaths(
         logger.info { "  Found ${paths.size} raw paths" }
 
         if (paths.isEmpty()) {
-            dependentTargetIds.add(targetId to targetClassName)
+            val directParentCount = reverseIndex[targetId]?.size ?: 0
+            if (directParentCount == 0) {
+                unreachableTargetIds.add(targetId to targetClassName)
+            } else {
+                dependentTargetIds.add(targetId to targetClassName)
+            }
             continue
         }
 
@@ -196,11 +203,18 @@ fun findPaths(
     }
 
     if (dependentTargetIds.isNotEmpty()) {
-        // Group dependent targets by class name
         val byClass = dependentTargetIds.groupBy({ it.second }, { it.first })
         logger.info { "Found ${dependentTargetIds.size} dependent targets (held by paths above)" }
         for ((className, ids) in byClass) {
             onDependentTargets(DependentTargets(className, ids))
+        }
+    }
+
+    if (unreachableTargetIds.isNotEmpty()) {
+        val byClass = unreachableTargetIds.groupBy({ it.second }, { it.first })
+        logger.info { "Found ${unreachableTargetIds.size} unreachable targets (no strong references)" }
+        for ((className, ids) in byClass) {
+            onUnreachableTargets(DependentTargets(className, ids))
         }
     }
 }
