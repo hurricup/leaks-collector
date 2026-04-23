@@ -25,7 +25,15 @@ else
 fi
 echo "Using IDEA process: PID $PID"
 
-# 2. Compress IDE logs
+# 2. Invoke GC several times
+echo "Invoking GC..."
+for i in 1 2 3 4 5; do
+    jcmd "$PID" GC.run
+    echo "  GC invocation $i done, waiting 3s..."
+    sleep 3
+done
+
+# 3. Compress IDE logs
 if [ -d "$LOG_DIR" ]; then
     echo "Compressing IDE logs..."
     LOGS_ZIP="$(pwd)/$TMP/logs_$STAMP.zip"
@@ -35,18 +43,10 @@ else
     echo "Log directory not found: $LOG_DIR"
 fi
 
-# 3. jstack
+# 4. jstack
 echo "Taking thread dump..."
 jstack -l -e "$PID" > "$TMP/jstack_$STAMP.txt"
 echo "Thread dump saved to $TMP/jstack_$STAMP.txt"
-
-# 4. Invoke GC several times
-echo "Invoking GC..."
-for i in 1 2 3; do
-    jcmd "$PID" GC.run
-    echo "  GC invocation $i done, waiting 3s..."
-    sleep 3
-done
 
 # 5. Heap dump
 HPROF="$TMP/closedprojects_$STAMP.hprof"
