@@ -16,6 +16,7 @@ typealias Annotator = (HeapInstance, HeapGraph) -> List<String>
  */
 private val ANNOTATORS: Map<String, Annotator> = mapOf(
     "com.intellij.testFramework.LightVirtualFile" to ::annotateLightVirtualFile,
+    "com.intellij.openapi.editor.impl.DocumentImpl" to ::annotateDocumentImpl,
 )
 
 fun annotationsFor(instance: HeapInstance, graph: HeapGraph): List<String> {
@@ -27,6 +28,12 @@ private fun annotateLightVirtualFile(obj: HeapInstance, graph: HeapGraph): List<
     val lines = mutableListOf<String>()
     formatFieldValue(obj, graph, "myName")?.let { lines.add("myName = $it") }
     formatFieldValue(obj, graph, "myContent")?.let { lines.add("myContent = $it") }
+    return lines
+}
+
+private fun annotateDocumentImpl(obj: HeapInstance, graph: HeapGraph): List<String> {
+    val lines = mutableListOf<String>()
+    formatFieldValue(obj, graph, "myText")?.let { lines.add("myText = $it") }
     return lines
 }
 
@@ -54,16 +61,15 @@ private fun formatFieldValue(
 
     val id = value.asNonNullObjectId
     if (id != null) {
-        return formatObjectValue(graph.findObjectById(id))
+        return formatObjectValue(graph.findObjectById(id), graph)
     }
 
     return value.holder.toString()
 }
 
-private fun formatObjectValue(obj: HeapObject): String {
-    if (obj is HeapInstance && obj.instanceClassName == "java.lang.String") {
-        val s = obj.readAsJavaString() ?: return "<unreadable String>"
-        return formatString(s)
+private fun formatObjectValue(obj: HeapObject, graph: HeapGraph): String {
+    if (obj is HeapInstance) {
+        readAsString(obj, graph)?.let { return formatString(it) }
     }
     val className = when (obj) {
         is HeapInstance -> obj.instanceClassName
@@ -72,6 +78,41 @@ private fun formatObjectValue(obj: HeapObject): String {
         is HeapObject.HeapPrimitiveArray -> obj.arrayClassName
     }
     return "<$className>"
+}
+
+/**
+ * Attempts to extract a string from a CharSequence-like instance. Handles common
+ * IntelliJ/JDK CharSequence implementations by unwrapping to the underlying String.
+ * Returns null when the instance isn't a recognized string-like type.
+ */
+private fun readAsString(obj: HeapInstance, graph: HeapGraph, budget: Int = MAX_STRING_LENGTH + 1): String? {
+    if (budget <= 0) return ""
+    return when (obj.instanceClassName) {
+        "java.lang.String" -> obj.readAsJavaString()?.take(budget)
+        "com.intellij.util.text.ImmutableText" -> {
+            readReferencedString(obj, graph, "com.intellij.util.text.ImmutableText", "myNode", budget)
+        }
+        "com.intellij.util.text.ImmutableText\$CompositeNode" -> {
+            val cls = "com.intellij.util.text.ImmutableText\$CompositeNode"
+            val head = readReferencedString(obj, graph, cls, "head", budget) ?: return null
+            if (head.length >= budget) return head
+            val tail = readReferencedString(obj, graph, cls, "tail", budget - head.length) ?: return head
+            head + tail
+        }
+        else -> null
+    }
+}
+
+private fun readReferencedString(
+    owner: HeapInstance,
+    graph: HeapGraph,
+    declaringClassName: String,
+    fieldName: String,
+    budget: Int,
+): String? {
+    val id = owner.readField(declaringClassName, fieldName)?.value?.asNonNullObjectId ?: return null
+    val target = graph.findObjectById(id) as? HeapInstance ?: return null
+    return readAsString(target, graph, budget)
 }
 
 private const val MAX_STRING_LENGTH = 100
