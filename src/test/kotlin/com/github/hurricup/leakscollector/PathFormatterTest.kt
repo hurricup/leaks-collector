@@ -63,4 +63,60 @@ class PathFormatterTest {
             formatPath(path, pretty = true),
         )
     }
+
+    @Test
+    fun `annotations render in pretty mode before the step`() {
+        val path = listOf(
+            PathStep.FieldReference("com.example.Root", "child"),
+            PathStep.FieldReference(
+                "com.example.LightVirtualFile",
+                "value",
+                annotations = listOf("myName = \"Foo.txt\"", "myContent = \"hello\"")
+            ),
+            PathStep.Target("com.example.Target", 42),
+        )
+        assertEquals(
+            "com.example.Root.child ->\n" +
+                "\t# myName = \"Foo.txt\"\n" +
+                "\t# myContent = \"hello\"\n" +
+                "\tcom.example.LightVirtualFile.value ->\n" +
+                "\tcom.example.Target@42",
+            formatPath(path, pretty = true),
+        )
+    }
+
+    @Test
+    fun `annotations are omitted in inline mode`() {
+        val path = listOf(
+            PathStep.FieldReference("com.example.Root", "child"),
+            PathStep.FieldReference(
+                "com.example.LightVirtualFile",
+                "value",
+                annotations = listOf("myName = \"Foo.txt\"")
+            ),
+            PathStep.Target("com.example.Target", 42),
+        )
+        assertEquals(
+            "com.example.Root.child -> com.example.LightVirtualFile.value -> com.example.Target@42",
+            formatPath(path),
+        )
+    }
+
+    @Test
+    fun `empty annotations add no lines`() {
+        val withEmpty = listOf(
+            PathStep.FieldReference("com.example.Root", "child"),
+            PathStep.FieldReference("com.example.Child", "value", annotations = emptyList()),
+            PathStep.Target("com.example.Target", 42),
+        )
+        val withoutAnnotations = listOf(
+            PathStep.FieldReference("com.example.Root", "child"),
+            PathStep.FieldReference("com.example.Child", "value"),
+            PathStep.Target("com.example.Target", 42),
+        )
+        assertEquals(
+            formatPath(withoutAnnotations, pretty = true),
+            formatPath(withEmpty, pretty = true),
+        )
+    }
 }
