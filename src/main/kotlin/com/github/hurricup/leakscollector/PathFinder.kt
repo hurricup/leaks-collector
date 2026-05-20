@@ -15,7 +15,7 @@ private val logger = KotlinLogging.logger {}
  */
 sealed class PathStep {
     data class Root(val gcRoot: GcRoot, val heapObject: HeapObject, val threadName: String? = null) : PathStep()
-    data class FieldReference(val ownerClassName: String, val fieldName: String) : PathStep()
+    data class FieldReference(val ownerClassName: String, val fieldName: String, val annotations: List<String> = emptyList()) : PathStep()
     data class ArrayReference(val arrayClassName: String, val index: Int) : PathStep()
     data class Target(val className: String, val objectId: Long) : PathStep()
 }
@@ -461,9 +461,10 @@ private fun resolveEdge(graph: HeapGraph, parentId: Long, childId: Long): PathSt
     when (parent) {
         is HeapInstance -> {
             val className = parent.instanceClassName
+            val annotations = annotationsFor(parent, graph)
             parent.readFields().forEach { field ->
                 if (field.value.asNonNullObjectId == childId) {
-                    return PathStep.FieldReference(className, field.name)
+                    return PathStep.FieldReference(className, field.name, annotations)
                 }
             }
         }
