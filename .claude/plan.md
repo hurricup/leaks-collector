@@ -70,7 +70,20 @@ Provide interactive CLI that:
 ### 5. Submit reports to JetBrains exception analyzer
 Represent each leak chain as a synthetic stacktrace and submit it to JetBrains exception analyzer (ea.jetbrains.com). This would allow leak reports to be tracked alongside regular exception reports. For implementation details, study how IntelliJ IDEA's built-in error reporting mechanism formats and submits reports.
 
-### 6. MCP server for snapshot navigation
+### 6. Per-class object annotations in paths
+For specific classes, attach diagnostic info (field values) as comment lines between path steps in `--pretty` output. Initial implementation: string-only handling with a fallback to "Object of {className}" for non-strings. Per-class custom annotators added as we encounter useful cases (e.g., `LightVirtualFile` → name + content snippet). Annotations must be display-only — must NOT affect `pathSignature` or grouping. Truncate string values to ~100 chars with ellipsis; replace newlines with `\n` literal.
+
+Needs a general `CharSequence` reader helper (IntelliJ uses CharSequence widely: String, StringBuilder, ImmutableCharSequence, CharArrayCharSequence, etc.) — reusable both for annotations and other field reads (e.g., IDE info extraction).
+
+Example:
+```
+com.intellij.openapi.command.impl.EditorAndState.virtualFile ->
+    # myName = "Dummy.txt"
+    # myContent = "blablablba..."
+com.intellij.testFramework.LightVirtualFile.value ->
+```
+
+### 7. MCP server for snapshot navigation
 Separate tool that loads a heap snapshot and exposes MCP tools for navigating, searching, and inspecting the object graph interactively. This feels like a separate project rather than an extension of leaks-collector.
 
 ## Completed commits
