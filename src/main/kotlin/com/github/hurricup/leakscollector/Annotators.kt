@@ -3,6 +3,7 @@ package com.github.hurricup.leakscollector
 import shark.HeapGraph
 import shark.HeapObject
 import shark.HeapObject.HeapInstance
+import shark.HeapObject.HeapObjectArray
 
 /**
  * Computes diagnostic annotation lines for an instance. Each returned line is rendered as a
@@ -124,4 +125,79 @@ private fun formatString(s: String): String {
     } else {
         "\"$escaped\""
     }
+}
+
+// --- Array-step annotations: Disposer cross-array lookup -------------------
+
+/**
+ * Caches the IDs of Disposer's myObject2ParentNode `key` and `value` arrays, computed once per
+ * HeapGraph. Allows constant-time recognition when a path traverses one of those arrays.
+ */
+private data class DisposerInfo(val keyArrayId: Long?, val valueArrayId: Long?)
+
+@Volatile
+private var cachedDisposer: Pair<HeapGraph, DisposerInfo>? = null
+
+private fun disposerInfo(graph: HeapGraph): DisposerInfo {
+    val cached = cachedDisposer
+    if (cached != null && cached.first === graph) return cached.second
+    val info = computeDisposerInfo(graph)
+    cachedDisposer = graph to info
+    return info
+}
+
+private fun computeDisposerInfo(graph: HeapGraph): DisposerInfo {
+    val disposerClass = graph.findClassByName("com.intellij.openapi.util.Disposer")
+        ?: return DisposerInfo(null, null)
+    val treeId = disposerClass.readStaticField("ourTree")?.value?.asNonNullObjectId
+        ?: return DisposerInfo(null, null)
+    val tree = graph.findObjectById(treeId) as? HeapInstance
+        ?: return DisposerInfo(null, null)
+    val mapId = tree.readField("com.intellij.openapi.util.ObjectTree", "myObject2ParentNode")
+        ?.value?.asNonNullObjectId ?: return DisposerInfo(null, null)
+    val map = graph.findObjectById(mapId) as? HeapInstance
+        ?: return DisposerInfo(null, null)
+    val mapClass = "it.unimi.dsi.fastutil.objects.Reference2ObjectOpenHashMap"
+    val keyId = map.readField(mapClass, "key")?.value?.asNonNullObjectId
+    val valueId = map.readField(mapClass, "value")?.value?.asNonNullObjectId
+    return DisposerInfo(keyId, valueId)
+}
+
+/**
+ * Computes annotation lines for an ArrayReference step. Currently used to surface
+ * the corresponding disposal pair when a path traverses the Disposer's key/value arrays.
+ */
+fun annotateArrayStep(parentArrayId: Long, index: Int, graph: HeapGraph): List<String> {
+    val info = disposerInfo(graph)
+    return when (parentArrayId) {
+        info.keyArrayId -> disposerSibling(info.valueArrayId, index, graph, "parent")
+        info.valueArrayId -> disposerSibling(info.keyArrayId, index, graph, "child")
+        else -> emptyList()
+    }
+}
+
+private fun disposerSibling(siblingArrayId: Long?, index: Int, graph: HeapGraph, role: String): List<String> {
+    if (siblingArrayId == null) return emptyList()
+    val arr = graph.findObjectById(siblingArrayId) as? HeapObjectArray ?: return emptyList()
+    val elementIds = arr.readRecord().elementIds
+    val siblingId = elementIds.getOrNull(index) ?: return emptyList()
+    if (siblingId == 0L) return emptyList()
+    val siblingObj = graph.findObjectById(siblingId)
+    return listOf("$role = ${formatDisposerSibling(siblingObj, graph)}")
+}
+
+/**
+ * Renders a Disposer disposal-pair sibling for inline display. ObjectNode wrappers are
+ * unwrapped to their myObject for clarity; other objects are formatted via [formatObjectValue].
+ */
+private fun formatDisposerSibling(obj: HeapObject, graph: HeapGraph): String {
+    if (obj is HeapInstance && obj.instanceClassName == "com.intellij.openapi.util.ObjectNode") {
+        val targetId = obj.readField("com.intellij.openapi.util.ObjectNode", "myObject")
+            ?.value?.asNonNullObjectId
+        if (targetId != null) {
+            val target = graph.findObjectById(targetId)
+            return "ObjectNode of ${formatObjectValue(target, graph)}"
+        }
+    }
+    return formatObjectValue(obj, graph)
 }

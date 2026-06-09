@@ -38,5 +38,6 @@ private fun formatStep(step: PathStep): String = when (step) {
 
 private fun annotationsOf(step: PathStep): List<String> = when (step) {
     is PathStep.FieldReference -> step.annotations
+    is PathStep.ArrayReference -> step.annotations
     else -> emptyList()
 }
