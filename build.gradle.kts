@@ -11,8 +11,8 @@ repositories {
 }
 
 dependencies {
-    implementation("com.squareup.leakcanary:shark-graph:2.14")
-    implementation("com.squareup.leakcanary:shark-hprof:2.14")
+    implementation(files("libs/shark-graph-3.0-alpha-9.jar", "libs/shark-hprof-3.0-alpha-9.jar"))
+    implementation("com.squareup.okio:okio:3.9.0")
     implementation("io.github.oshai:kotlin-logging-jvm:7.0.3")
     implementation("ch.qos.logback:logback-classic:1.5.15")
     testImplementation(kotlin("test"))
