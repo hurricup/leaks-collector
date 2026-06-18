@@ -2,6 +2,35 @@
 
 CLI tool that analyzes JVM heap dumps (`.hprof` files) and finds retention paths from GC roots to leaked objects. Useful for diagnosing memory leaks in JVM applications — particularly IntelliJ-based IDEs.
 
+## What it's for
+
+When a long-running IDE keeps growing memory after you've closed projects or editor tabs, something is still strongly referencing the disposed objects. This tool tells you *what* — by walking back from each leaked `ProjectImpl` / `EditorImpl` toward GC roots and printing the actual reference chain that holds it alive.
+
+Typical questions it answers:
+- I closed N projects, why are N `ProjectImpl` instances still in memory?
+- I closed editor tabs, why do `EditorImpl` instances keep accumulating?
+- Which code path / plugin / framework is holding onto disposed objects?
+
+## Quick start
+
+The repo includes two helper scripts that wrap the common workflow:
+
+```bash
+./capture            # auto-detect IDE PID, zip logs, dump threads, dump heap
+./capture --analyze  # same, then immediately analyze the heap dump
+```
+
+Or step by step:
+
+```bash
+./capture            # writes tmp/closedprojects_<DDMM_HHMM>.hprof
+./analyze tmp/closedprojects_<DDMM_HHMM>.hprof
+```
+
+`./analyze` writes the retention paths to `<dump>.out.txt` and the run log to `<dump>.err.txt`. The hprof is left on disk for re-analysis.
+
+The tool requires a JDK 21+ on the PATH (`jcmd`, `jps`, `jstack`, `jmap` are used by `./capture`).
+
 ## How it works
 
 1. Opens the heap dump and scans for target objects:
