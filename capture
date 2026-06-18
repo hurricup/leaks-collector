@@ -3,10 +3,39 @@ set -euo pipefail
 
 STAMP=$(date +%d%m_%H%M)
 TMP="tmp"
+ANALYZE=false
+PID=""
+
+usage() {
+    cat <<EOF
+Usage: $(basename "$0") [--analyze] [--help] [<pid>]
+
+Captures diagnostic data from a running IntelliJ-based IDE: forces GC, zips the
+IDE log directory, takes a thread dump, and dumps the heap. All artifacts are
+written to ./tmp/ with a date+time stamp.
+
+Arguments:
+  <pid>       PID of the target IDE JVM. If omitted, the script auto-detects
+              a single running IDE process; on ambiguity it lists them and exits.
+
+Options:
+  --analyze   After the heap dump is captured, immediately run ./analyze on it.
+  --help      Show this help and exit.
+EOF
+}
+
+# Parse args: optional PID and --analyze flag, any order
+for arg in "$@"; do
+    case "$arg" in
+        --analyze) ANALYZE=true ;;
+        --help|-h) usage; exit 0 ;;
+        *) PID="$arg" ;;
+    esac
+done
 
 # 1. Resolve PID
-if [ $# -ge 1 ]; then
-    PID="$1"
+if [ -n "$PID" ]; then
+    : # already provided
 else
     IDEA_PIDS=$(jps -l | grep -i "com.intellij.idea.Main" | awk '{print $1}')
     IDEA_COUNT=$(echo "$IDEA_PIDS" | grep -c . || true)
@@ -71,3 +100,9 @@ echo "All done. Files in $TMP/:"
 echo "  logs_$STAMP.zip"
 echo "  jstack_$STAMP.txt"
 echo "  closedprojects_$STAMP.hprof"
+
+if [ "$ANALYZE" = true ]; then
+    echo ""
+    echo "Running analyzer..."
+    "$(dirname "$0")/analyze" "$HPROF"
+fi
