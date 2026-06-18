@@ -3,7 +3,6 @@ set -euo pipefail
 
 STAMP=$(date +%d%m_%H%M)
 TMP="tmp"
-LOG_DIR="$HOME/.cache/JetBrains/IntelliJIdea2026.2/log"
 
 # 1. Resolve PID
 if [ $# -ge 1 ]; then
@@ -25,7 +24,20 @@ else
 fi
 echo "Using IDEA process: PID $PID"
 
-# 2. Invoke GC several times
+# 2. Resolve IDE log directory from the target JVM's own system properties
+SYSPROPS=$(jcmd "$PID" VM.system_properties 2>/dev/null)
+SELECTOR=$(echo "$SYSPROPS" | grep "^idea.paths.selector=" | cut -d= -f2-)
+TARGET_USER_HOME=$(echo "$SYSPROPS" | grep "^user.home=" | cut -d= -f2-)
+TARGET_OS=$(echo "$SYSPROPS" | grep "^os.name=" | cut -d= -f2-)
+
+case "$TARGET_OS" in
+    Linux*) LOG_DIR="$TARGET_USER_HOME/.cache/JetBrains/$SELECTOR/log" ;;
+    "Mac OS X"*|Darwin*) LOG_DIR="$TARGET_USER_HOME/Library/Logs/JetBrains/$SELECTOR" ;;
+    Windows*) LOG_DIR="$TARGET_USER_HOME/AppData/Local/JetBrains/$SELECTOR/log" ;;
+    *) LOG_DIR="" ;;
+esac
+
+# 3. Invoke GC several times
 echo "Invoking GC..."
 for i in 1 2 3 4 5; do
     jcmd "$PID" GC.run
@@ -33,22 +45,22 @@ for i in 1 2 3 4 5; do
     sleep 3
 done
 
-# 3. Compress IDE logs
-if [ -d "$LOG_DIR" ]; then
-    echo "Compressing IDE logs..."
+# 4. Compress IDE logs
+if [ -n "$LOG_DIR" ] && [ -d "$LOG_DIR" ]; then
+    echo "Compressing IDE logs from $LOG_DIR ..."
     LOGS_ZIP="$(pwd)/$TMP/logs_$STAMP.zip"
     (cd "$LOG_DIR" && zip -r -q "$LOGS_ZIP" .)
     echo "Logs saved to $TMP/logs_$STAMP.zip"
 else
-    echo "Log directory not found: $LOG_DIR"
+    echo "Log directory not found (selector=$SELECTOR, os=$TARGET_OS, dir=$LOG_DIR)"
 fi
 
-# 4. jstack
+# 5. jstack
 echo "Taking thread dump..."
 jstack -l -e "$PID" > "$TMP/jstack_$STAMP.txt"
 echo "Thread dump saved to $TMP/jstack_$STAMP.txt"
 
-# 5. Heap dump
+# 6. Heap dump
 HPROF="$TMP/closedprojects_$STAMP.hprof"
 echo "Capturing heap dump (this may take a while)..."
 jmap -dump:format=b,file="$HPROF" "$PID"
