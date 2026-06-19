@@ -4,30 +4,38 @@ set -euo pipefail
 STAMP=$(date +%d%m_%H%M)
 TMP="tmp"
 ANALYZE=false
+SHUTDOWN=false
 PID=""
+
+SHUTDOWN_TIMEOUT=60
 
 usage() {
     cat <<EOF
-Usage: $(basename "$0") [--analyze] [--help] [<pid>]
+Usage: $(basename "$0") [--analyze] [--shutdown] [--help] [<pid>]
 
-Captures diagnostic data from a running IntelliJ-based IDE: forces GC, zips the
-IDE log directory, takes a thread dump, and dumps the heap. All artifacts are
-written to ./tmp/ with a date+time stamp.
+Captures diagnostic data from a running IntelliJ-based IDE. In order:
+forces GC, takes a thread dump, dumps the heap, then zips the log directory.
+All artifacts are written to ./tmp/ with a date+time stamp.
 
 Arguments:
-  <pid>       PID of the target IDE JVM. If omitted, the script auto-detects
-              a single running IDE process; on ambiguity it lists them and exits.
+  <pid>        PID of the target IDE JVM. If omitted, the script auto-detects
+               a single running IDE process; on ambiguity it lists them and exits.
 
 Options:
-  --analyze   After the heap dump is captured, immediately run ./analyze on it.
-  --help      Show this help and exit.
+  --analyze    After the heap dump is captured, immediately run ./analyze on it.
+  --shutdown   After the heap dump, send SIGTERM to the IDE and wait up to
+               ${SHUTDOWN_TIMEOUT}s for it to exit before zipping logs. This captures
+               shutdown-time diagnostics in the log archive. Note: unsaved
+               editor changes are not prompted for and may be lost.
+  --help       Show this help and exit.
 EOF
 }
 
-# Parse args: optional PID and --analyze flag, any order
+# Parse args: optional PID and flags, any order
 for arg in "$@"; do
     case "$arg" in
         --analyze) ANALYZE=true ;;
+        --shutdown) SHUTDOWN=true ;;
         --help|-h) usage; exit 0 ;;
         *) PID="$arg" ;;
     esac
@@ -74,7 +82,38 @@ for i in 1 2 3 4 5; do
     sleep 3
 done
 
-# 4. Compress IDE logs
+# 4. jstack
+echo "Taking thread dump..."
+jstack -l -e "$PID" > "$TMP/jstack_$STAMP.txt"
+echo "Thread dump saved to $TMP/jstack_$STAMP.txt"
+
+# 5. Heap dump
+HPROF="$TMP/closedprojects_$STAMP.hprof"
+echo "Capturing heap dump (this may take a while)..."
+jmap -dump:format=b,file="$HPROF" "$PID"
+echo "Heap dump saved to $HPROF"
+
+# 6. Optionally signal IDE to shut down so shutdown-time diagnostics make it into the logs
+if [ "$SHUTDOWN" = true ]; then
+    echo "Signaling IDE to shut down (SIGTERM)..."
+    kill -TERM "$PID" 2>/dev/null || true
+
+    echo "Waiting up to ${SHUTDOWN_TIMEOUT}s for IDE to exit..."
+    ELAPSED=0
+    while kill -0 "$PID" 2>/dev/null; do
+        if [ "$ELAPSED" -ge "$SHUTDOWN_TIMEOUT" ]; then
+            echo "  IDE still running after ${SHUTDOWN_TIMEOUT}s, proceeding anyway."
+            break
+        fi
+        sleep 1
+        ELAPSED=$((ELAPSED + 1))
+    done
+    if ! kill -0 "$PID" 2>/dev/null; then
+        echo "  IDE exited after ${ELAPSED}s."
+    fi
+fi
+
+# 7. Compress IDE logs
 if [ -n "$LOG_DIR" ] && [ -d "$LOG_DIR" ]; then
     echo "Compressing IDE logs from $LOG_DIR ..."
     LOGS_ZIP="$(pwd)/$TMP/logs_$STAMP.zip"
@@ -83,17 +122,6 @@ if [ -n "$LOG_DIR" ] && [ -d "$LOG_DIR" ]; then
 else
     echo "Log directory not found (selector=$SELECTOR, os=$TARGET_OS, dir=$LOG_DIR)"
 fi
-
-# 5. jstack
-echo "Taking thread dump..."
-jstack -l -e "$PID" > "$TMP/jstack_$STAMP.txt"
-echo "Thread dump saved to $TMP/jstack_$STAMP.txt"
-
-# 6. Heap dump
-HPROF="$TMP/closedprojects_$STAMP.hprof"
-echo "Capturing heap dump (this may take a while)..."
-jmap -dump:format=b,file="$HPROF" "$PID"
-echo "Heap dump saved to $HPROF"
 
 echo ""
 echo "All done. Files in $TMP/:"
