@@ -18,6 +18,7 @@ typealias Annotator = (HeapInstance, HeapGraph) -> List<String>
 private val ANNOTATORS: Map<String, Annotator> = mapOf(
     "com.intellij.testFramework.LightVirtualFile" to ::annotateLightVirtualFile,
     "com.intellij.openapi.editor.impl.DocumentImpl" to ::annotateDocumentImpl,
+    "com.intellij.ui.tabs.impl.JBTabsImpl" to ::annotateJBTabsImpl,
 )
 
 fun annotationsFor(instance: HeapInstance, graph: HeapGraph): List<String> {
@@ -35,6 +36,12 @@ private fun annotateLightVirtualFile(obj: HeapInstance, graph: HeapGraph): List<
 private fun annotateDocumentImpl(obj: HeapInstance, graph: HeapGraph): List<String> {
     val lines = mutableListOf<String>()
     formatFieldValue(obj, graph, "myText")?.let { lines.add("myText = $it") }
+    return lines
+}
+
+private fun annotateJBTabsImpl(obj: HeapInstance, graph: HeapGraph): List<String> {
+    val lines = mutableListOf<String>()
+    formatFieldValue(obj, graph, "parentDisposable")?.let { lines.add("parentDisposable = $it") }
     return lines
 }
 
