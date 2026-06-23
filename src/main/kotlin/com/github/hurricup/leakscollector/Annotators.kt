@@ -78,6 +78,12 @@ private fun formatFieldValue(
 private fun formatObjectValue(obj: HeapObject, graph: HeapGraph): String {
     if (obj is HeapInstance) {
         readAsString(obj, graph)?.let { return formatString(it) }
+        // Named disposables from Disposer.newDisposable(debugName) capture the name as val$debugName.
+        obj.readField(obj.instanceClassName, "val\$debugName")?.value?.asNonNullObjectId?.let { nameId ->
+            (graph.findObjectById(nameId) as? HeapInstance)?.readAsJavaString()?.let { name ->
+                return "<${obj.instanceClassName}: ${formatString(name)}>"
+            }
+        }
     }
     val className = when (obj) {
         is HeapInstance -> obj.instanceClassName
