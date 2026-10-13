@@ -1,5 +1,45 @@
 # leaks-collector
 
+A CLI tool that reads a JVM heap dump (hprof) and finds strong retention paths from GC roots to leaked objects of
+an IntelliJ-based IDE. User docs are in `README.md`. Behavior is in `spec/`, decisions are in `adr/`.
+
+| Folder | Content |
+| --- | --- |
+| `src/main/kotlin/com/github/hurricup/leakscollector/` | the tool |
+| `src/test/kotlin/com/github/hurricup/leakscollector/` | tests |
+| `src/test/resources/graphs/` | YAML test graphs, format in `src/test/resources/test-graph-schema.md` |
+| `capture`, `analyze` | helper scripts |
+| `libs/` | Shark jars |
+| `tmp/` | heap dumps, outputs, Shark sources; gitignored |
+
+## Build and run
+
+- Build: `./gradlew build`. Test: `./gradlew test`. JDK 21 or later.
+- Run: `./gradlew run -q --args="--pretty tmp/<dump>.hprof" > tmp/<dump>.out.txt 2> tmp/<dump>.err.txt`, or
+  `./analyze tmp/<dump>.hprof`, which does the same.
+- Always send stdout and stderr to separate files, then read them.
+- Heap dumps live in `tmp/`, named `closedprojects_<DDMM_HHMM>.hprof`. `./capture` makes them.
+
+## Rules
+
+- Kotlin, Gradle with the Kotlin DSL.
+- One logical change per commit.
+- Keep the analysis on one thread. See [ADR 0002](adr/0002-the-analysis-runs-on-one-thread.md).
+- Test the path search with YAML graphs. See
+  [ADR 0005](adr/0005-algorithm-tests-run-on-synthetic-yaml-graphs.md).
+- "Store" or "save" means a file in the repository, never machine-local memory. Put each text in its home, see
+  below.
+- Review flow: Codex writes a review in `codex_review.md`, Claude answers in `claude_review_answer.md`. Both
+  files are gitignored.
+
+## Shark
+
+- The heap parser is Shark (`shark-graph`, `shark-hprof`) from Square's LeakCanary. The jars are in `libs/`,
+  version 3.0-alpha-9. It reads standard JVM dumps, though LeakCanary targets Android.
+- Shark sources are unpacked in `tmp/shark-hprof/` and `tmp/shark-graph/` for reference.
+- Known upstream bug: [leakcanary#2807](https://github.com/square/leakcanary/issues/2807), a
+  `NegativeArraySizeException` on some large dumps. It is an int overflow in the record count.
+
 ## Where each kind of text goes
 
 | Kind of text | Home |
