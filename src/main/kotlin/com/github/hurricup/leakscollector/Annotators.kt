@@ -1,5 +1,7 @@
 package com.github.hurricup.leakscollector
 
+// @spec ../../../../../../../spec/path-annotations.spec.md
+
 import shark.HeapGraph
 import shark.HeapObject
 import shark.HeapObject.HeapInstance

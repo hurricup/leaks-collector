@@ -1,6 +1,7 @@
 package com.github.hurricup.leakscollector
 
 // @spec ../../../../../../../spec/report-format.spec.md
+// @spec ../../../../../../../spec/path-annotations.spec.md
 
 /**
  * Formats a path of [PathStep]s into a human-readable string.
