@@ -1,5 +1,7 @@
 package com.github.hurricup.leakscollector
 
+// @spec ../../../../../../../spec/retention-paths.spec.md
+
 import io.github.oshai.kotlinlogging.KotlinLogging
 import shark.GcRoot
 import shark.HeapGraph
