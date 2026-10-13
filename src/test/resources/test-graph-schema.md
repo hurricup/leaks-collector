@@ -46,6 +46,9 @@ Each entry in `objects` is keyed by a unique string ID.
 
 An object must have either `fields`, `elements`, or neither (leaf node). Not both.
 
+The order of definitions in `objects` sets the order of parents in the reverse index: an object defined first
+is the first parent a walk tries. Backtracking and cycle tests depend on this order.
+
 ## Path Format
 
 Paths in `expected_paths` follow the output format:
