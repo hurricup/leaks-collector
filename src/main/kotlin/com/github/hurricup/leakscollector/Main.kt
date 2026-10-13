@@ -1,5 +1,7 @@
 package com.github.hurricup.leakscollector
 
+// @spec ../../../../../../../spec/leak-targets.spec.md
+
 import io.github.oshai.kotlinlogging.KotlinLogging
 import shark.HeapGraph
 import shark.HeapObject.HeapClass

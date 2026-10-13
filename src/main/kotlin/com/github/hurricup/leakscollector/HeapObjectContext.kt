@@ -1,5 +1,7 @@
 package com.github.hurricup.leakscollector
 
+// @spec ../../../../../../../spec/leak-targets.spec.md
+
 import shark.HeapGraph
 import shark.HeapObject
 
