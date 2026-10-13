@@ -48,23 +48,28 @@ private fun annotateJBTabsImpl(obj: HeapInstance, graph: HeapGraph): List<String
 }
 
 /**
- * Reads a field by name (searching across the class hierarchy) and formats its value:
+ * Follows a chain of fields from [owner] and formats the value of the last one.
+ *
+ * Each field is searched across the class hierarchy of its owner. The value is formatted as:
  * - null/missing field -> null (caller skips)
  * - String value -> "..." (truncated to 100 chars, newlines escaped)
  * - Other object -> "<className>"
  * - Primitive -> string representation
+ *
+ * @param fieldPath field names to follow; every field but the last must hold an instance.
+ * @return the formatted value, or `null` when a field is missing or an intermediate value is not an instance.
  */
 private fun formatFieldValue(
     owner: HeapInstance,
     graph: HeapGraph,
-    fieldName: String,
+    vararg fieldPath: String,
 ): String? {
-    var field: shark.HeapField? = null
-    for (cls in owner.instanceClass.classHierarchy) {
-        field = owner.readField(cls.name, fieldName)
-        if (field != null) break
+    var current = owner
+    for (fieldName in fieldPath.dropLast(1)) {
+        val id = readFieldInHierarchy(current, fieldName)?.value?.asNonNullObjectId ?: return null
+        current = graph.findObjectById(id) as? HeapInstance ?: return null
     }
-    if (field == null) return null
+    val field = readFieldInHierarchy(current, fieldPath.last()) ?: return null
     val value = field.value
 
     if (value.isNullReference) return "null"
@@ -75,6 +80,17 @@ private fun formatFieldValue(
     }
 
     return value.holder.toString()
+}
+
+/**
+ * Returns the field named [fieldName] of [owner], searching from its own class up the hierarchy, or `null` if
+ * no class in the hierarchy declares it.
+ */
+private fun readFieldInHierarchy(owner: HeapInstance, fieldName: String): shark.HeapField? {
+    for (cls in owner.instanceClass.classHierarchy) {
+        owner.readField(cls.name, fieldName)?.let { return it }
+    }
+    return null
 }
 
 private fun formatObjectValue(obj: HeapObject, graph: HeapGraph): String {
