@@ -247,7 +247,19 @@ private fun computeMergeDepth(
 }
 
 /**
- * For a single target, walks backward from each direct parent to find diverse paths to GC roots.
+ * Walks backward from each direct parent of a single target to find diverse paths to GC roots.
+ *
+ * Takes plain ids instead of Shark types, so `PathFinderTest` can drive it from YAML graphs. The test harness
+ * repeats the claiming of [findPaths] across targets.
+ *
+ * @param targetId the target to find paths for.
+ * @param reverseIndex child id to parent ids.
+ * @param rootObjectIds ids of objects held by strong GC roots.
+ * @param allTargetIds all targets; a path through another target is a dead end.
+ * @param claimedNodes nodes claimed by earlier targets; a path through them is a dead end.
+ * @param defaultMergeDepth merge depth of a path with no anchor class on it.
+ * @param classNameOf resolves an id to its class name for anchor detection; `null` disables anchors.
+ * @return the found paths, at most [MAX_PATHS_PER_TARGET].
  */
 internal fun findPathsForTarget(
     targetId: Long,
