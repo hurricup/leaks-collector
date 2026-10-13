@@ -48,6 +48,7 @@ an IntelliJ-based IDE. User docs are in `README.md`. Behavior is in `spec/`, dec
 | A decision and its reason | a decision record (ADR) in `adr/` |
 | How the code works | KDoc on the symbol |
 | A rule for future changes | this file |
+| An idea for later | `PLANS.md` |
 
 A sentence is moved to its home, never dropped.
 
