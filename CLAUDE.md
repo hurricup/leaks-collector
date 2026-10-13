@@ -1,3 +1,5 @@
+@AGENTS.md
+
 # leaks-collector
 
 ## Project
