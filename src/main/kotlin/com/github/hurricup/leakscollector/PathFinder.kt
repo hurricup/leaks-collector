@@ -1,6 +1,7 @@
 package com.github.hurricup.leakscollector
 
 // @spec ../../../../../../../spec/retention-paths.spec.md
+// @spec ../../../../../../../spec/reverse-index-cache.spec.md
 
 import io.github.oshai.kotlinlogging.KotlinLogging
 import shark.GcRoot

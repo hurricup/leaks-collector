@@ -1,5 +1,7 @@
 package com.github.hurricup.leakscollector
 
+// @spec ../../../../../../../spec/reverse-index-cache.spec.md
+
 import io.github.oshai.kotlinlogging.KotlinLogging
 import java.io.*
 import java.security.MessageDigest
