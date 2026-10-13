@@ -40,3 +40,10 @@ Two payoffs:
 
 ### MCP server for snapshot navigation
 Separate tool that loads a heap snapshot and exposes MCP tools for navigating, searching, and inspecting the object graph interactively. This feels like a separate project rather than an extension of leaks-collector.
+
+### Key names on user data map steps
+Show `# key = "<Key name>"` on a path step into user data, for example `Int2ObjectOpenHashMap.value -> Object[][i]` under `MapBackedFMap.map`, including `MapVersionedUserDataFMap`.
+- fastutil open hash maps keep parallel `key` and `value` arrays. The key int is `key[i]`, which is `Key.myIndex`. Find the `Key` instance with that index and show its `myName`, or `#<index>` when the key is gone. Build the index → `Key` map once per dump.
+- Same pattern as the Disposer pair annotation (`disposerSibling` in `Annotators.kt`). Make it a generic fastutil-map sibling lookup and keep Disposer as a case of it.
+- Difference: Disposer has one map, found once through the `Disposer.ourTree` static. User data has many maps, so the array annotation must get the map that holds the array from the path, which is the next step toward the root.
+- Later: `ArrayBackedFMap` (`keys`/`values`), and `OneElementFMap`/`PairElementsFMap`, which hold the `Key` directly. The pair map also needs the field the path went through.
