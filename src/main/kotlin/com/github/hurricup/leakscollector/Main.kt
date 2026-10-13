@@ -1,6 +1,7 @@
 package com.github.hurricup.leakscollector
 
 // @spec ../../../../../../../spec/leak-targets.spec.md
+// @spec ../../../../../../../spec/report-format.spec.md
 
 import io.github.oshai.kotlinlogging.KotlinLogging
 import shark.HeapGraph
