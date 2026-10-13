@@ -35,10 +35,17 @@ private fun annotateLightVirtualFile(obj: HeapInstance, graph: HeapGraph): List<
     return lines
 }
 
+/**
+ * Field path from `DocumentImpl` to its text in builds where the text moved behind `DocumentCoreImpl`:
+ * `DocumentImpl.impl` -> `DocumentCoreImpl.snapshot` -> `DocumentSnapshotImpl.text` -> `DocumentTextImpl.chars`,
+ * all in IntelliJ `platform/core-impl/src/com/intellij/openapi/editor/impl/`.
+ */
+private val DOCUMENT_CORE_TEXT_PATH = arrayOf("impl", "snapshot", "text", "chars")
+
 private fun annotateDocumentImpl(obj: HeapInstance, graph: HeapGraph): List<String> {
-    val lines = mutableListOf<String>()
-    formatFieldValue(obj, graph, "myText")?.let { lines.add("myText = $it") }
-    return lines
+    formatFieldValue(obj, graph, "myText")?.let { return listOf("myText = $it") }
+    formatFieldValue(obj, graph, *DOCUMENT_CORE_TEXT_PATH)?.let { return listOf("text = $it") }
+    return emptyList()
 }
 
 private fun annotateJBTabsImpl(obj: HeapInstance, graph: HeapGraph): List<String> {

@@ -46,7 +46,8 @@ classes. They are for display only.
 - A field annotation must show as `<field> = <value>`.
 - A missing field must give no line.
 - `LightVirtualFile` must show `myName` and `myContent`.
-- `DocumentImpl` must show `myText`.
+- `DocumentImpl` must show `myText` when it has this field.
+- Otherwise `DocumentImpl` must show its text as `text = <value>`. Newer builds keep it in `DocumentCoreImpl`.
 - `JBTabsImpl` must show `parentDisposable`.
 
 ### Array steps
