@@ -461,7 +461,8 @@ private fun buildPathSteps(
         val parentId = ids[i]
         val childId = ids[i + 1]
         if (parentId == childId) continue
-        steps.add(resolveEdge(graph, parentId, childId))
+        val holderIds = ids.subList(0, i).asReversed().dropWhile { it == parentId }
+        steps.add(resolveEdge(graph, holderIds, parentId, childId))
     }
 
     steps.add(PathStep.Target(targetClassName, targetId))
@@ -470,8 +471,10 @@ private fun buildPathSteps(
 
 /**
  * Finds the field or array element in [parentId] that references [childId].
+ *
+ * @param holderIds ids of the objects that hold [parentId] on the path, nearest first; array annotations use them.
  */
-private fun resolveEdge(graph: HeapGraph, parentId: Long, childId: Long): PathStep {
+private fun resolveEdge(graph: HeapGraph, holderIds: List<Long>, parentId: Long, childId: Long): PathStep {
     val parent = graph.findObjectById(parentId)
     when (parent) {
         is HeapInstance -> {
@@ -487,7 +490,7 @@ private fun resolveEdge(graph: HeapGraph, parentId: Long, childId: Long): PathSt
             val className = parent.arrayClassName
             parent.readRecord().elementIds.forEachIndexed { idx, elementId ->
                 if (elementId == childId) {
-                    return PathStep.ArrayReference(className, idx, annotateArrayStep(parentId, idx, graph))
+                    return PathStep.ArrayReference(className, idx, annotateArrayStep(holderIds, parentId, idx, graph))
                 }
             }
         }

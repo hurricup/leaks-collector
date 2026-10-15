@@ -165,54 +165,70 @@ private fun formatString(s: String): String {
     }
 }
 
-// --- Array-step annotations: Disposer cross-array lookup -------------------
+// --- Array-step annotations: parallel key/value arrays of fastutil maps -----
+
+/** Field of a fastutil open hash map that holds its keys, parallel to [FASTUTIL_VALUE_ARRAY]. */
+private const val FASTUTIL_KEY_ARRAY = "key"
+
+/** Field of a fastutil open hash map that holds its values, parallel to [FASTUTIL_KEY_ARRAY]. */
+private const val FASTUTIL_VALUE_ARRAY = "value"
 
 /**
- * Caches the IDs of Disposer's myObject2ParentNode `key` and `value` arrays, computed once per
- * HeapGraph. Allows constant-time recognition when a path traverses one of those arrays.
+ * Holds a value that is computed once per [HeapGraph], and computed again when another graph is passed.
  */
-private data class DisposerInfo(val keyArrayId: Long?, val valueArrayId: Long?)
+private class PerGraphCache<T>(private val compute: (HeapGraph) -> T) {
+    @Volatile
+    private var cached: Pair<HeapGraph, T>? = null
 
-@Volatile
-private var cachedDisposer: Pair<HeapGraph, DisposerInfo>? = null
-
-private fun disposerInfo(graph: HeapGraph): DisposerInfo {
-    val cached = cachedDisposer
-    if (cached != null && cached.first === graph) return cached.second
-    val info = computeDisposerInfo(graph)
-    cachedDisposer = graph to info
-    return info
+    /**
+     * Returns the value for [graph], computing it on the first call for this graph.
+     */
+    operator fun get(graph: HeapGraph): T {
+        cached?.let { (cachedGraph, value) -> if (cachedGraph === graph) return value }
+        return compute(graph).also { cached = graph to it }
+    }
 }
 
-private fun computeDisposerInfo(graph: HeapGraph): DisposerInfo {
-    val disposerClass = graph.findClassByName("com.intellij.openapi.util.Disposer")
-        ?: return DisposerInfo(null, null)
-    val treeId = disposerClass.readStaticField("ourTree")?.value?.asNonNullObjectId
-        ?: return DisposerInfo(null, null)
-    val tree = graph.findObjectById(treeId) as? HeapInstance
-        ?: return DisposerInfo(null, null)
-    val mapId = tree.readField("com.intellij.openapi.util.ObjectTree", "myObject2ParentNode")
-        ?.value?.asNonNullObjectId ?: return DisposerInfo(null, null)
-    val map = graph.findObjectById(mapId) as? HeapInstance
-        ?: return DisposerInfo(null, null)
-    val mapClass = "it.unimi.dsi.fastutil.objects.Reference2ObjectOpenHashMap"
-    val keyId = map.readField(mapClass, "key")?.value?.asNonNullObjectId
-    val valueId = map.readField(mapClass, "value")?.value?.asNonNullObjectId
-    return DisposerInfo(keyId, valueId)
+private val disposerMapId = PerGraphCache(::findDisposerMapId)
+
+/**
+ * Returns the id of `Disposer.ourTree.myObject2ParentNode`, the map from each disposable to the node of its
+ * parent, or `null` when the heap has no Disposer tree.
+ */
+private fun findDisposerMapId(graph: HeapGraph): Long? {
+    val disposerClass = graph.findClassByName("com.intellij.openapi.util.Disposer") ?: return null
+    val treeId = disposerClass.readStaticField("ourTree")?.value?.asNonNullObjectId ?: return null
+    val tree = graph.findObjectById(treeId) as? HeapInstance ?: return null
+    return tree.readField("com.intellij.openapi.util.ObjectTree", "myObject2ParentNode")?.value?.asNonNullObjectId
 }
 
 /**
- * Computes annotation lines for an ArrayReference step. Currently used to surface
- * the corresponding disposal pair when a path traverses the Disposer's key/value arrays.
+ * Computes annotation lines for an ArrayReference step. Currently used to surface the corresponding disposal
+ * pair when a path traverses the Disposer's key/value arrays.
+ *
+ * @param holderIds ids of the objects that hold the array on the path, nearest first.
+ * @param arrayId the array that the step goes through.
+ * @param index the index of the step in the array.
  */
-fun annotateArrayStep(parentArrayId: Long, index: Int, graph: HeapGraph): List<String> {
-    val info = disposerInfo(graph)
-    return when (parentArrayId) {
-        info.keyArrayId -> disposerSibling(info.valueArrayId, index, graph, "parent")
-        info.valueArrayId -> disposerSibling(info.keyArrayId, index, graph, "child")
+fun annotateArrayStep(holderIds: List<Long>, arrayId: Long, index: Int, graph: HeapGraph): List<String> {
+    val holderId = holderIds.firstOrNull() ?: return emptyList()
+    if (holderId != disposerMapId[graph]) return emptyList()
+    val map = graph.findObjectById(holderId) as? HeapInstance ?: return emptyList()
+    val keyArrayId = map.readReferenceField(FASTUTIL_KEY_ARRAY)
+    val valueArrayId = map.readReferenceField(FASTUTIL_VALUE_ARRAY)
+    return when (arrayId) {
+        keyArrayId -> disposerSibling(valueArrayId, index, graph, "parent")
+        valueArrayId -> disposerSibling(keyArrayId, index, graph, "child")
         else -> emptyList()
     }
 }
+
+/**
+ * Returns the object id held by the field named [fieldName], searched across the class hierarchy, or `null` when
+ * the field is missing or holds null.
+ */
+private fun HeapInstance.readReferenceField(fieldName: String): Long? =
+    readFieldInHierarchy(this, fieldName)?.value?.asNonNullObjectId
 
 private fun disposerSibling(siblingArrayId: Long?, index: Int, graph: HeapGraph, role: String): List<String> {
     if (siblingArrayId == null) return emptyList()
