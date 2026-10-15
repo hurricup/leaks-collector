@@ -6,6 +6,8 @@ import shark.HeapGraph
 import shark.HeapObject
 import shark.HeapObject.HeapInstance
 import shark.HeapObject.HeapObjectArray
+import shark.HeapObject.HeapPrimitiveArray
+import shark.HprofRecord.HeapDumpRecord.ObjectRecord.PrimitiveArrayDumpRecord.IntArrayDump
 
 /**
  * Computes diagnostic annotation lines for an instance. Each returned line is rendered as a
@@ -203,8 +205,8 @@ private fun findDisposerMapId(graph: HeapGraph): Long? {
 }
 
 /**
- * Computes annotation lines for an ArrayReference step. Currently used to surface the corresponding disposal
- * pair when a path traverses the Disposer's key/value arrays.
+ * Computes annotation lines for an ArrayReference step: the corresponding disposal pair when a path traverses
+ * the Disposer's key/value arrays, and the user data key when it traverses the values of a `KeyFMap`.
  *
  * @param holderIds ids of the objects that hold the array on the path, nearest first.
  * @param arrayId the array that the step goes through.
@@ -212,8 +214,15 @@ private fun findDisposerMapId(graph: HeapGraph): Long? {
  */
 fun annotateArrayStep(holderIds: List<Long>, arrayId: Long, index: Int, graph: HeapGraph): List<String> {
     val holderId = holderIds.firstOrNull() ?: return emptyList()
-    if (holderId != disposerMapId[graph]) return emptyList()
-    val map = graph.findObjectById(holderId) as? HeapInstance ?: return emptyList()
+    if (holderId == disposerMapId[graph]) return annotateDisposerStep(holderId, arrayId, index, graph)
+    val keyIndicesId = findUserDataKeyIndicesId(holderIds, arrayId, graph) ?: return emptyList()
+    val keyIndices = (graph.findObjectById(keyIndicesId) as? HeapPrimitiveArray)?.readRecord() as? IntArrayDump
+    val keyIndex = keyIndices?.array?.getOrNull(index) ?: return emptyList()
+    return listOf("key = ${formatUserDataKey(keyIndex, graph)}")
+}
+
+private fun annotateDisposerStep(mapId: Long, arrayId: Long, index: Int, graph: HeapGraph): List<String> {
+    val map = graph.findObjectById(mapId) as? HeapInstance ?: return emptyList()
     val keyArrayId = map.readReferenceField(FASTUTIL_KEY_ARRAY)
     val valueArrayId = map.readReferenceField(FASTUTIL_VALUE_ARRAY)
     return when (arrayId) {
@@ -229,6 +238,59 @@ fun annotateArrayStep(holderIds: List<Long>, arrayId: Long, index: Int, graph: H
  */
 private fun HeapInstance.readReferenceField(fieldName: String): Long? =
     readFieldInHierarchy(this, fieldName)?.value?.asNonNullObjectId
+
+// --- Array-step annotations: user data keys of KeyFMap ----------------------
+
+private const val KEY_CLASS = "com.intellij.openapi.util.Key"
+
+/** Holds `int[] keys` and `Object[] values`, parallel arrays; its versioned subclasses keep the layout. */
+private const val ARRAY_BACKED_FMAP_CLASS = "com.intellij.util.keyFMap.ArrayBackedFMap"
+
+/** Holds an `Int2ObjectOpenHashMap map` from key index to value; its versioned subclasses keep the layout. */
+private const val MAP_BACKED_FMAP_CLASS = "com.intellij.util.keyFMap.MapBackedFMap"
+
+private const val INT2OBJECT_MAP_CLASS = "it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap"
+
+private val keyNamesByIndex = PerGraphCache(::collectKeyNames)
+
+/**
+ * Returns the id of the `int[]` of key indices that runs parallel to [arrayId], when [arrayId] holds the values
+ * of a `KeyFMap`, or `null` otherwise. A key index is `Key.myIndex`.
+ *
+ * @param holderIds ids of the objects that hold the array on the path, nearest first.
+ */
+private fun findUserDataKeyIndicesId(holderIds: List<Long>, arrayId: Long, graph: HeapGraph): Long? {
+    val holder = holderIds.firstOrNull()?.let { graph.findObjectById(it) } as? HeapInstance ?: return null
+    if (holder instanceOf ARRAY_BACKED_FMAP_CLASS) {
+        return if (holder.readReferenceField("values") == arrayId) holder.readReferenceField("keys") else null
+    }
+    if (holder.instanceClassName != INT2OBJECT_MAP_CLASS) return null
+    if (holder.readReferenceField(FASTUTIL_VALUE_ARRAY) != arrayId) return null
+    val fmap = holderIds.getOrNull(1)?.let { graph.findObjectById(it) } as? HeapInstance ?: return null
+    return if (fmap instanceOf MAP_BACKED_FMAP_CLASS) holder.readReferenceField(FASTUTIL_KEY_ARRAY) else null
+}
+
+/**
+ * Returns the names of all `Key` instances in the heap, by their `myIndex`.
+ */
+private fun collectKeyNames(graph: HeapGraph): Map<Int, String?> {
+    val keyClass = graph.findClassByName(KEY_CLASS) ?: return emptyMap()
+    val names = HashMap<Int, String?>()
+    for (key in keyClass.instances) {
+        val index = key.readField(KEY_CLASS, "myIndex")?.value?.asInt ?: continue
+        names[index] = key.readField(KEY_CLASS, "myName")?.value?.readAsJavaString()
+    }
+    return names
+}
+
+/**
+ * Renders the user data key with [keyIndex] as its quoted name, or as `#<index>` when the key is not in the heap.
+ */
+private fun formatUserDataKey(keyIndex: Int, graph: HeapGraph): String {
+    val names = keyNamesByIndex[graph]
+    if (keyIndex !in names) return "#$keyIndex"
+    return names[keyIndex]?.let(::formatString) ?: "null"
+}
 
 private fun disposerSibling(siblingArrayId: Long?, index: Int, graph: HeapGraph, role: String): List<String> {
     if (siblingArrayId == null) return emptyList()

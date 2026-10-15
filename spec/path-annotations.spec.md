@@ -57,6 +57,11 @@ classes. They are for display only.
 - A step through the value array of that map must show `child = <value>`. The value is the entry at the same
   index in the key array.
 - An `ObjectNode` value must show as `ObjectNode of <value of its object>`.
+- A step through the values of user data must show `key = <key>`. The key is the one paired with that value.
+- This applies to the value array of an `ArrayBackedFMap` and of the map inside a `MapBackedFMap`.
+- It applies to the versioned user data maps too, because they extend these two classes.
+- A key must show as its name in double quotes.
+- A key that is no longer in the heap must show as `#<key index>`.
 
 ### Values
 
