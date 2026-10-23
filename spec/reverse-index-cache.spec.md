@@ -32,6 +32,7 @@ seconds.
 - A cache must be valid only when its dump size and its dump fingerprint match the dump.
 - The dump fingerprint is the SHA-256 of the first 64 KB of the dump.
 - A cache of another format version must be invalid.
+- A cache built by a tool that follows other references must be invalid.
 - An invalid or corrupt cache must not fail the run. The tool must log a warning, build the index and overwrite
   the cache.
 - To delete the cache file must force a rebuild.

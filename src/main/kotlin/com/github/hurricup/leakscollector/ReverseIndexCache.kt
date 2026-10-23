@@ -11,7 +11,11 @@ import java.util.zip.GZIPOutputStream
 private val logger = KotlinLogging.logger {}
 
 private const val MAGIC = 0x52494458 // "RIDX"
-private const val VERSION = 3
+/**
+ * Format version of the cache. Bump it also when the set of references that the index keeps changes: the rules of
+ * `buildReverseIndex` and `nonStrongFieldsOf` in `PathFinder.kt`.
+ */
+private const val VERSION = 4
 private const val FINGERPRINT_BYTES = 64 * 1024 // hash first 64KB of hprof
 
 /**
