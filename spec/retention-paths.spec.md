@@ -33,8 +33,9 @@ path. A target that is held only through the path of another target is reported 
 ### References and roots
 
 - A path must follow only strong references.
-- A path must not go through the `referent` of a weak, soft, phantom or finalizer reference, or a `Cleaner`.
+- A path must not go through the `referent` of any subclass of `java.lang.ref.Reference`.
   [@test] ../src/test/resources/graphs/weak-reference-referent.yaml
+  [@test] ../src/test/resources/graphs/finalizer-referent.yaml
 - A path must start at a GC root of one of these types: `JniGlobal`, `JniLocal`, `JavaFrame`, `NativeStack`,
   `ThreadBlock`, `MonitorUsed`, `ThreadObject`, `JniMonitor`, `ReferenceCleanup`, `VmInternal`.
   See [ADR 0001](../adr/0001-only-actionable-gc-roots-start-a-path.md).

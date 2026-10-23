@@ -77,6 +77,9 @@ class PathFinderTest {
     fun `weak reference referent is not followed`() = runGraphTest("weak-reference-referent.yaml")
 
     @Test
+    fun `finalizer referent is not followed`() = runGraphTest("finalizer-referent.yaml")
+
+    @Test
     fun `schema rejects invalid yaml`() {
         assertFails("Schema should reject unknown fields") {
             loadTestGraph("invalid-schema.yaml")

@@ -23,15 +23,10 @@ sealed class PathStep {
     data class Target(val className: String, val objectId: Long) : PathStep()
 }
 
-private val WEAK_REFERENCE_CLASSES = setOf(
-    "java.lang.ref.WeakReference",
-    "java.lang.ref.SoftReference",
-    "java.lang.ref.PhantomReference",
-    "java.lang.ref.FinalizerReference",
-    "sun.misc.Cleaner",
-)
+/** The base class of weak, soft, phantom and finalizer references, and of cleaners. */
+private const val REFERENCE_CLASS = "java.lang.ref.Reference"
 
-/** Names of the fields that do not hold their value strongly in an instance of a [WEAK_REFERENCE_CLASSES] class. */
+/** Names of the fields that do not hold their value strongly in an instance of a [REFERENCE_CLASS] subclass. */
 private val NON_STRONG_REFERENCE_FIELDS = setOf("referent")
 
 private val LEAF_INSTANCE_CLASSES = setOf(
@@ -626,7 +621,7 @@ private fun nonStrongFieldsOf(instance: HeapInstance): Set<String> =
  * @param classHierarchy names of the class and of all its superclasses.
  */
 internal fun nonStrongFieldsOf(classHierarchy: Sequence<String>): Set<String> =
-    if (classHierarchy.any { it in WEAK_REFERENCE_CLASSES }) NON_STRONG_REFERENCE_FIELDS else emptySet()
+    if (REFERENCE_CLASS in classHierarchy) NON_STRONG_REFERENCE_FIELDS else emptySet()
 
 private fun isStrongRoot(root: GcRoot): Boolean = when (root) {
     is GcRoot.JniGlobal -> true

@@ -1,0 +1,23 @@
+description: >
+  The target waits for finalization: a HotSpot Finalizer holds it in its referent. The Finalizer extends
+  java.lang.ref.Reference but none of the public reference classes. Its referent makes no path.
+
+roots:
+  - type: JniGlobal
+    objects: [finalizer_class]
+
+objects:
+  finalizer_class:
+    class: java.lang.ref.Finalizer
+    fields:
+      unfinalized: finalizer
+  finalizer:
+    class: java.lang.ref.Finalizer
+    superclasses: [java.lang.ref.FinalReference, java.lang.ref.Reference, java.lang.Object]
+    fields:
+      referent: target1
+
+targets: [target1]
+target_class: com.example.ProjectImpl
+
+expected_paths: []
