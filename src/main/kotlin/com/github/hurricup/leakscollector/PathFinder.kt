@@ -26,8 +26,12 @@ sealed class PathStep {
 /** The base class of weak, soft, phantom and finalizer references, and of cleaners. */
 private const val REFERENCE_CLASS = "java.lang.ref.Reference"
 
-/** Names of the fields that do not hold their value strongly in an instance of a [REFERENCE_CLASS] subclass. */
-private val NON_STRONG_REFERENCE_FIELDS = setOf("referent")
+/**
+ * Names of the fields that do not hold their value strongly in an instance of a [REFERENCE_CLASS] subclass.
+ *
+ * `discovered` links the pending list of the GC, see ADR 0006.
+ */
+private val NON_STRONG_REFERENCE_FIELDS = setOf("referent", "discovered")
 
 private val LEAF_INSTANCE_CLASSES = setOf(
     "java.lang.String",

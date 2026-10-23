@@ -36,6 +36,11 @@ path. A target that is held only through the path of another target is reported 
 - A path must not go through the `referent` of any subclass of `java.lang.ref.Reference`.
   [@test] ../src/test/resources/graphs/weak-reference-referent.yaml
   [@test] ../src/test/resources/graphs/finalizer-referent.yaml
+- A path must not go through the `discovered` field of a reference: the pending list of the GC.
+  See [ADR 0006](../adr/0006-a-path-does-not-follow-the-gc-pending-list.md).
+  [@test] ../src/test/resources/graphs/reference-discovered.yaml
+- A path must go through the `next` field of a reference that waits in a reference queue.
+  [@test] ../src/test/resources/graphs/reference-discovered.yaml
 - A path must start at a GC root of one of these types: `JniGlobal`, `JniLocal`, `JavaFrame`, `NativeStack`,
   `ThreadBlock`, `MonitorUsed`, `ThreadObject`, `JniMonitor`, `ReferenceCleanup`, `VmInternal`.
   See [ADR 0001](../adr/0001-only-actionable-gc-roots-start-a-path.md).

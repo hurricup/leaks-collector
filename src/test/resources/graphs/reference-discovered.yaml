@@ -1,0 +1,44 @@
+description: >
+  Two weak references with strong owner fields. The first is reached only through the discovered field of a
+  map key, the pending list of the GC: its target makes no path. The second waits in a reference queue: the
+  next field of the queued reference makes a path to its target.
+
+roots:
+  - type: JniGlobal
+    objects: [map, queue]
+
+objects:
+  map:
+    class: com.example.WeakMap
+    fields:
+      key: pending_key
+  pending_key:
+    class: com.example.WeakMap$WeakKey
+    superclasses: [java.lang.ref.WeakReference, java.lang.ref.Reference, java.lang.Object]
+    fields:
+      discovered: pending_ref
+  pending_ref:
+    class: javax.swing.ActionPropertyChangeListener$OwnedWeakReference
+    superclasses: [java.lang.ref.WeakReference, java.lang.ref.Reference, java.lang.Object]
+    fields:
+      owner: target1
+  queue:
+    class: java.lang.ref.ReferenceQueue
+    fields:
+      head: queued_head
+  queued_head:
+    class: javax.swing.ActionPropertyChangeListener$OwnedWeakReference
+    superclasses: [java.lang.ref.WeakReference, java.lang.ref.Reference, java.lang.Object]
+    fields:
+      next: queued_ref
+  queued_ref:
+    class: javax.swing.ActionPropertyChangeListener$OwnedWeakReference
+    superclasses: [java.lang.ref.WeakReference, java.lang.ref.Reference, java.lang.Object]
+    fields:
+      owner: target2
+
+targets: [target1, target2]
+target_class: com.example.ButtonActionPropertyChangeListener
+
+expected_paths:
+  - "Root[JniGlobal] -> java.lang.ref.ReferenceQueue.head -> javax.swing.ActionPropertyChangeListener$OwnedWeakReference.next -> javax.swing.ActionPropertyChangeListener$OwnedWeakReference.owner -> com.example.ButtonActionPropertyChangeListener"
