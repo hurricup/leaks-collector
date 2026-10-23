@@ -31,6 +31,9 @@ private val WEAK_REFERENCE_CLASSES = setOf(
     "sun.misc.Cleaner",
 )
 
+/** Names of the fields that do not hold their value strongly in an instance of a [WEAK_REFERENCE_CLASSES] class. */
+private val NON_STRONG_REFERENCE_FIELDS = setOf("referent")
+
 private val LEAF_INSTANCE_CLASSES = setOf(
     "java.lang.String",
     "java.lang.Byte",
@@ -480,7 +483,9 @@ private fun resolveEdge(graph: HeapGraph, holderIds: List<Long>, parentId: Long,
         is HeapInstance -> {
             val className = parent.instanceClassName
             val annotations = annotationsFor(parent, graph)
+            val nonStrongFields = nonStrongFieldsOf(parent)
             parent.readFields().forEach { field ->
+                if (field.name in nonStrongFields) return@forEach
                 if (field.value.asNonNullObjectId == childId) {
                     return PathStep.FieldReference(className, field.name, annotations)
                 }
@@ -548,10 +553,10 @@ private fun buildReverseIndex(graph: HeapGraph): Map<Long, LongArray> {
         when (obj) {
             is HeapInstance -> {
                 if (obj.instanceClassName in LEAF_INSTANCE_CLASSES) continue
-                val isWeak = isWeakReferenceType(obj)
+                val nonStrongFields = nonStrongFieldsOf(obj)
                 obj.readFields().forEach { field ->
                     if (field.name.startsWith('<')) return@forEach
-                    if (isWeak && field.name == "referent") return@forEach
+                    if (field.name in nonStrongFields) return@forEach
                     val childId = field.value.asNonNullObjectId ?: return@forEach
                     if (skipChildIds.binarySearch(childId) >= 0) return@forEach
                     if (!graph.objectExists(childId)) return@forEach
@@ -607,9 +612,21 @@ private fun collectLeafObjectIds(graph: HeapGraph): LongArray {
     return ids.toLongArray().also { it.sort() }
 }
 
-private fun isWeakReferenceType(instance: HeapInstance): Boolean {
-    return instance.instanceClass.classHierarchy.any { it.name in WEAK_REFERENCE_CLASSES }
-}
+/**
+ * Returns the names of the fields that do not hold their value strongly in [instance].
+ */
+private fun nonStrongFieldsOf(instance: HeapInstance): Set<String> =
+    nonStrongFieldsOf(instance.instanceClass.classHierarchy.map { it.name })
+
+/**
+ * Returns the names of the fields that do not hold their value strongly in an instance of a class.
+ *
+ * `PathFinderTest` calls it to build the reverse index of a YAML test graph.
+ *
+ * @param classHierarchy names of the class and of all its superclasses.
+ */
+internal fun nonStrongFieldsOf(classHierarchy: Sequence<String>): Set<String> =
+    if (classHierarchy.any { it in WEAK_REFERENCE_CLASSES }) NON_STRONG_REFERENCE_FIELDS else emptySet()
 
 private fun isStrongRoot(root: GcRoot): Boolean = when (root) {
     is GcRoot.JniGlobal -> true

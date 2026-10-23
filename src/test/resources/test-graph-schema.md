@@ -41,10 +41,14 @@ Each entry in `objects` is keyed by a unique string ID.
 | Key | Required | Type | Description |
 |-----|----------|------|-------------|
 | `class` | yes | string | Fully qualified class name |
+| `superclasses` | no | list of string | Fully qualified names of all superclasses, nearest first |
 | `fields` | no | map of string → string | Named field references: `fieldName: targetObjectId` |
 | `elements` | no | list of string | Array element references (ordered): `[objectId, ...]` |
 
 An object must have either `fields`, `elements`, or neither (leaf node). Not both.
+
+The test skips the fields that do not hold strongly, like the `referent` of a weak reference. It finds them by
+`class` and `superclasses`, with the same rule as the tool.
 
 The order of definitions in `objects` sets the order of parents in the reverse index: an object defined first
 is the first parent a walk tries. Backtracking and cycle tests depend on this order.

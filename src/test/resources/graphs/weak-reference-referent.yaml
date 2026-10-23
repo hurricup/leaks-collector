@@ -1,0 +1,29 @@
+description: >
+  The target is held by the referent of a weak reference subclass and by a strong field. Only the strong field
+  makes a path.
+
+roots:
+  - type: JniGlobal
+    objects: [registry]
+
+objects:
+  registry:
+    class: com.example.Registry
+    fields:
+      ref: weak_ref
+      holder: holder
+  weak_ref:
+    class: com.example.KeyRef
+    superclasses: [java.lang.ref.WeakReference, java.lang.ref.Reference, java.lang.Object]
+    fields:
+      referent: target1
+  holder:
+    class: com.example.Holder
+    fields:
+      project: target1
+
+targets: [target1]
+target_class: com.example.ProjectImpl
+
+expected_paths:
+  - "Root[JniGlobal] -> com.example.Registry.holder -> com.example.Holder.project -> com.example.ProjectImpl"

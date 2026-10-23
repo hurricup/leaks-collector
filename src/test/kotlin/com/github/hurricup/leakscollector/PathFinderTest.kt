@@ -74,6 +74,9 @@ class PathFinderTest {
     fun `cross-target filters only path through other target`() = runGraphTest("cross-target-partial.yaml")
 
     @Test
+    fun `weak reference referent is not followed`() = runGraphTest("weak-reference-referent.yaml")
+
+    @Test
     fun `schema rejects invalid yaml`() {
         assertFails("Schema should reject unknown fields") {
             loadTestGraph("invalid-schema.yaml")
@@ -184,7 +187,9 @@ class PathFinderTest {
         val forwardRefs = HashMap<Long, ArrayList<Long>>()
         for ((name, obj) in objectDefs) {
             val parentId = objectIds.getValue(name)
-            obj.fields?.values?.forEach { childName ->
+            val nonStrongFields = nonStrongFieldsOf(obj.classHierarchy())
+            obj.fields?.forEach { (fieldName, childName) ->
+                if (fieldName in nonStrongFields) return@forEach
                 val childId = objectIds.getValue(childName)
                 forwardRefs.getOrPut(childId) { ArrayList() }.add(parentId)
             }
@@ -277,7 +282,13 @@ class PathFinderTest {
 
     private data class TestObject(
         val `class`: String,
+        val superclasses: List<String>? = null,
         val fields: Map<String, String>? = null,
         val elements: List<String?>? = null,
-    )
+    ) {
+        /**
+         * Returns the names of the class and of all its superclasses, nearest first.
+         */
+        fun classHierarchy(): Sequence<String> = sequenceOf(`class`) + superclasses.orEmpty()
+    }
 }

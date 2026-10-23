@@ -94,6 +94,13 @@
           "type": "string",
           "description": "Fully qualified class name."
         },
+        "superclasses": {
+          "type": "array",
+          "description": "Fully qualified names of all superclasses, nearest first.",
+          "items": {
+            "type": "string"
+          }
+        },
         "fields": {
           "type": "object",
           "description": "Named field references: fieldName -> targetObjectId.",
