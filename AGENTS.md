@@ -107,6 +107,8 @@ A sentence is moved to its home, never dropped.
   changes when the new ADR is accepted.
 - An accepted ADR is not rewritten. A change to the decision is a new ADR that amends or supersedes it, and only
   the status of the old ADR changes.
+- A chain of amendments and supersessions holds at most 2 ADRs. Merge a longer chain into one ADR.
+- `AdrTest` checks the file names, the ids, the `Date:` lines and the chain depth.
 - One decision per ADR. An ADR links the spec that holds the resulting behavior.
 - KDoc may cite a decision as `ADR <ID>` when the code follows from it.
 - In `adr/` and `spec/`, every mention of an ADR or a spec is a relative link, not plain text. This applies to
