@@ -87,11 +87,19 @@ A sentence is moved to its home, never dropped.
 
 ## Decision records
 
-- An ADR is `adr/NNNN-<slug>.md`. Numbers are sequential and never reused.
+- An ADR is `adr/<ID>-<slug>.md`. See [ADR 0006GM](adr/0006GM-a-new-adr-takes-a-time-based-base-36-id.md).
+- The id is the number of seconds from the base `2026-11-18T05:20:25Z` to the creation of the ADR. It is written
+  in uppercase base 36 (`0-9`, then `A-Z`) and padded with zeros to six characters: `00K3F9`.
+- Create an ADR with `scripts/new-adr.sh` of the `hurricup-adr` skill. It computes the id. Never choose an id by
+  hand.
+- An older ADR with a four-digit number `NNNN` keeps its file name, its title and its `Date:` line. It holds the
+  id `00NNNN`. No new ADR takes a number: 0006 is the last one.
+- The title is `# <ID>. <Title>`.
 - The title states the decision as a sentence, not a topic.
 - Sections: `Status`, `Context`, `Decision`, `Consequences`, and `Rejected alternatives` when there were real
-  alternatives. A `Date:` line follows the title.
-- Status values: `Proposed`, `Accepted`, `Accepted. Amended by NNNN`, `Superseded by NNNN`, `Deprecated`. Add the
+  alternatives. A `Date:` line follows the title. It holds the creation time in UTC with seconds:
+  `Date: 2026-11-18T05:21:13Z`. The id equals that time minus the base.
+- Status values: `Proposed`, `Accepted`, `Accepted. Amended by <ID>`, `Superseded by <ID>`, `Deprecated`. Add the
   issue link when the ADR belongs to an issue.
 - An agent writes a new ADR as `Proposed`. Only the user accepts it. The agent sets `Accepted` only after the user
   says so, in the conversation. Code and specs may follow a `Proposed` ADR.
@@ -100,7 +108,7 @@ A sentence is moved to its home, never dropped.
 - An accepted ADR is not rewritten. A change to the decision is a new ADR that amends or supersedes it, and only
   the status of the old ADR changes.
 - One decision per ADR. An ADR links the spec that holds the resulting behavior.
-- KDoc may cite a decision as `ADR NNNN` when the code follows from it.
+- KDoc may cite a decision as `ADR <ID>` when the code follows from it.
 - In `adr/` and `spec/`, every mention of an ADR or a spec is a relative link, not plain text. This applies to
   each mention, not only to the first one.
 
